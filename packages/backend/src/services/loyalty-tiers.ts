@@ -105,16 +105,30 @@ export function getTierInfo(tier: LoyaltyTier): TierInfo | undefined {
   return TIERS.find(t => t.tier === tier);
 }
 
-export function calculateTierProgression(account: LoyaltyAccount): TierProgression {
-  const currentTierInfo = TIERS.find(t => t.tier === account.tier);
-  if (!currentTierInfo) {
+export function calculateTargetTier(totalPoints: number): LoyaltyTier {
+  let targetTier = TIERS[0].tier;
+  for (const t of TIERS) {
+    if (totalPoints >= t.minPoints) {
+      targetTier = t.tier;
+    } else {
+      break;
+    }
+  }
+  return targetTier;
+}
+
+export function recalculateLoyaltyTier(account: LoyaltyAccount): { tier: LoyaltyTier; changed: boolean } {
+  const targetTier = calculateTargetTier(account.totalPoints);
+  const changed = account.tier !== targetTier;
     return {
-      currentTier: TIERS[0],
-      nextTier: TIERS[1] || null,
-      pointsRemaining: TIERS[1]?.minPoints || 0,
-      progressPercent: 0,
+    tier: targetTier,
+    changed,
     };
   }
+
+export function calculateTierProgression(account: LoyaltyAccount): TierProgression {
+  const resolvedTier = calculateTargetTier(account.totalPoints);
+  const currentTierInfo = TIERS.find(t => t.tier === resolvedTier) || TIERS[0];
 
   const currentIndex = TIERS.indexOf(currentTierInfo);
   const nextTier = currentIndex < TIERS.length - 1 ? TIERS[currentIndex + 1] : null;
@@ -125,15 +139,10 @@ export function calculateTierProgression(account: LoyaltyAccount): TierProgressi
   if (nextTier) {
     const previousTierMinPoints = currentTierInfo.minPoints;
     const tierRange = nextTier.minPoints - previousTierMinPoints;
+    const pointsIntoTier = Math.max(0, account.totalPoints - previousTierMinPoints);
     pointsRemaining = Math.max(0, nextTier.minPoints - account.totalPoints);
-    if (tierRange > 0) {
-      progressPercent = Math.min(
-        100,
-        ((account.totalPoints - previousTierMinPoints) / tierRange) * 100
-      );
-    }
+    progressPercent = tierRange > 0 ? Math.min(100, (pointsIntoTier / tierRange) * 100) : 100;
   } else {
-    pointsRemaining = 0;
     progressPercent = 100;
   }
 
@@ -148,9 +157,12 @@ export function calculateTierProgression(account: LoyaltyAccount): TierProgressi
 export function getTierHistoryEntries(
   history: Array<{ tier: LoyaltyTier; changedAt: Date }>
 ): TierHistoryEntry[] {
-  return history.map(entry => ({
+  return history.map(entry => {
+    const info = getTierInfo(entry.tier);
+    return {
     tier: entry.tier,
-    name: getTierInfo(entry.tier)?.name || 'Unknown',
+      name: info ? info.name : 'Unknown',
     changedAt: entry.changedAt,
-  }));
+    };
+  });
 }
