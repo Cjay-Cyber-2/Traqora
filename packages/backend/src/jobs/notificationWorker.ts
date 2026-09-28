@@ -12,6 +12,16 @@ import { deadLetterQueue } from "./deadLetterQueue";
 export const setupNotificationWorker = () => {
   notificationQueue.process(async (job) => {
     const { userId, type, data, channels } = job.data;
+
+    const logRepoCheck = AppDataSource.getRepository(NotificationLog);
+    const recentLog = await logRepoCheck.findOne({
+      where: { userId, type, status: "sent" },
+      order: { createdAt: "DESC" }
+    });
+    if (recentLog && recentLog.createdAt && (Date.now() - new Date(recentLog.createdAt).getTime() < 60_000)) {
+      logger.info("Duplicate notification prevented across channels by NotificationLog check", { userId, type });
+      return;
+    }
     const log = createJobLogger("notification-worker", job.id?.toString() ?? undefined);
     log.start({ userId, type });
 

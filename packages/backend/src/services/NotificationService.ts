@@ -36,6 +36,8 @@ export class NotificationService {
   }
 
   private preferences: Map<string, NotificationPreference[]> = new Map();
+  private recentNotifications: Map<string, number> = new Map();
+  private DEDUPLICATION_WINDOW_MS = 60_000;
   private settings: Map<string, UserNotificationSettings> = new Map();
   private notifications: Map<string, Notification[]> = new Map();
   private deliveryLogs: Map<string, DeliveryLog[]> = new Map();
@@ -64,6 +66,15 @@ export class NotificationService {
     message: string,
     data?: Record<string, unknown>,
   ): Promise<boolean> {
+    const dedupKey = `price-alert:${userId}:${JSON.stringify(data)}`;
+    const now = Date.now();
+    const lastSent = this.recentNotifications.get(dedupKey);
+    if (lastSent && now - lastSent < this.DEDUPLICATION_WINDOW_MS) {
+      logger.info('Duplicate notification suppressed across channels', { userId, dedupKey });
+      return true;
+    }
+    this.recentNotifications.set(dedupKey, now);
+
     logger.info('Sending price alert', { userId });
     return this.sendPushNotification(userId, message, data);
   }
