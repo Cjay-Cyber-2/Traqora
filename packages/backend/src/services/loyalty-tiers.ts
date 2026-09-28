@@ -105,6 +105,16 @@ export function getTierInfo(tier: LoyaltyTier): TierInfo | undefined {
   return TIERS.find(t => t.tier === tier);
 }
 
+export function evaluateLoyaltyTier(totalPoints: number, currentTier: LoyaltyTier): LoyaltyTier {
+  const sortedTiers = [...TIERS].sort((a, b) => b.minPoints - a.minPoints);
+  for (const t of sortedTiers) {
+    if (totalPoints >= t.minPoints) {
+      return t.tier;
+    }
+  }
+  return TIERS[0].tier;
+}
+
 export function calculateTierProgression(account: LoyaltyAccount): TierProgression {
   const currentTierInfo = TIERS.find(t => t.tier === account.tier);
   if (!currentTierInfo) {

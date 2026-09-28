@@ -2,6 +2,7 @@ import {
   getTierInfo,
   calculateTierProgression,
   getTierHistoryEntries,
+  evaluateLoyaltyTier,
   TIERS,
 } from '../../src/services/loyalty-tiers';
 import { LoyaltyTier, LoyaltyAccount } from '../../src/types/loyalty';
@@ -115,5 +116,25 @@ describe('getTierHistoryEntries', () => {
       { tier: 'legacy_gold' as LoyaltyTier, changedAt: new Date() },
     ]);
     expect(entries[0].name).toBe('Unknown');
+  });
+});
+
+describe('evaluateLoyaltyTier (Idempotent Recalculation)', () => {
+  it('settles to the correct tier regardless of evaluation order', () => {
+    const pointsForGold = TIERS.find(t => t.tier === LoyaltyTier.GOLD)!.minPoints;
+    const pointsForSilver = TIERS.find(t => t.tier === LoyaltyTier.SILVER)!.minPoints;
+
+    // Evaluate in different orders / repeatedly
+    const tier1 = evaluateLoyaltyTier(pointsForGold, LoyaltyTier.BRONZE);
+    const tier2 = evaluateLoyaltyTier(pointsForGold, LoyaltyTier.DIAMOND);
+    const tier3 = evaluateLoyaltyTier(pointsForGold, LoyaltyTier.SILVER);
+
+    expect(tier1).toBe(LoyaltyTier.GOLD);
+    expect(tier2).toBe(LoyaltyTier.GOLD);
+    expect(tier3).toBe(LoyaltyTier.GOLD);
+
+    // Re-evaluating same points multiple times is strictly idempotent
+    expect(evaluateLoyaltyTier(pointsForSilver, LoyaltyTier.SILVER)).toBe(LoyaltyTier.SILVER);
+    expect(evaluateLoyaltyTier(pointsForSilver, LoyaltyTier.SILVER)).toBe(LoyaltyTier.SILVER);
   });
 });
