@@ -13,7 +13,7 @@ describe('recalculateTierIdempotent', () => {
     updatedAt: new Date(),
   };
 
-  it('should be idempotent and return no change when tier matches totalPoints', () => {
+  test('should be idempotent and return no change when tier matches totalPoints', () => {
     const account = { ...baseAccount, totalPoints: 1500, tier: LoyaltyTier.SILVER };
     const first = recalculateTierIdempotent(account);
     const second = recalculateTierIdempotent({ ...account, tier: first.updatedTier });
@@ -24,7 +24,7 @@ describe('recalculateTierIdempotent', () => {
     expect(second.updatedTier).toBe(first.updatedTier);
   });
 
-  it('should transition correctly and settle to a stable state independently of run order', () => {
+  test('should transition correctly and settle to a stable state independently of run order', () => {
     const account: LoyaltyAccount = { ...baseAccount, totalPoints: 15000, tier: LoyaltyTier.BRONZE };
     
     const res1 = recalculateTierIdempotent(account);
