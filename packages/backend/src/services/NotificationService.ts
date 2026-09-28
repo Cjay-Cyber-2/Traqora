@@ -40,6 +40,25 @@ export class NotificationService {
   private notifications: Map<string, Notification[]> = new Map();
   private deliveryLogs: Map<string, DeliveryLog[]> = new Map();
 
+  async isDuplicateNotification(
+    userId: string,
+    channel: NotificationChannel,
+    type: string,
+    payload: any,
+    windowMs: number,
+  ): Promise<boolean> {
+    const logs = this.deliveryLogs.get(userId) || [];
+    return logs.some((log) => {
+      const timeDiff = Date.now() - new Date(log.timestamp).getTime();
+      return (
+        timeDiff < windowMs &&
+        log.channel === channel &&
+        log.type === type &&
+        log.status === "sent"
+      );
+    });
+  }
+
   // -------------------------------------------------------------------------
   // User settings & preferences
   // -------------------------------------------------------------------------
