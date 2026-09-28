@@ -138,3 +138,4 @@ describe('evaluateLoyaltyTier (Idempotent Recalculation)', () => {
     expect(evaluateLoyaltyTier(pointsForSilver, LoyaltyTier.SILVER)).toBe(LoyaltyTier.SILVER);
   });
 });
+
