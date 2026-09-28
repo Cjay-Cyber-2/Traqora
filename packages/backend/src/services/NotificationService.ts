@@ -38,11 +38,36 @@ export class NotificationService {
   private preferences: Map<string, NotificationPreference[]> = new Map();
   private settings: Map<string, UserNotificationSettings> = new Map();
   private notifications: Map<string, Notification[]> = new Map();
+  private notificationLogs: NotificationLog[] = [];
   private deliveryLogs: Map<string, DeliveryLog[]> = new Map();
 
   // -------------------------------------------------------------------------
   // User settings & preferences
   // -------------------------------------------------------------------------
+
+  /**
+   * Check if a notification for the given user, type, and channel has already been sent
+   * recently (within deduplication window, e.g., 5 minutes = 300,000 ms).
+   */
+  async isDuplicateNotification(
+    userId: string,
+    channel: NotificationChannel | string,
+    type: string,
+    windowMs: number = 300_000,
+  ): Promise<boolean> {
+    const cutoff = new Date(Date.now() - windowMs);
+    // Check in-memory logs or DB repository if available
+    const recent = this.notificationLogs.find(
+      (log) =>
+        log.userId === userId &&
+        log.channel === channel &&
+        log.type === type &&
+        log.status === 'sent' &&
+        new Date(log.createdAt) >= cutoff,
+    );
+    if (recent) return true;
+    return false;
+  }
 
   /** Push-channel notification stub (no live provider wired yet). */
   async sendPushNotification(
