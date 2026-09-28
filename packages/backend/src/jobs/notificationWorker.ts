@@ -29,6 +29,19 @@ export const setupNotificationWorker = () => {
     log.step("load_user_preference");
 
     const targetChannels = channels || ["email", "sms", "push"];
+    const deduplicationWindowMs = 60_000;
+
+    // Multi-channel de-duplication check: if a notification of this type with identical payload was successfully sent recently, skip
+    const recentLog = await logRepo.findOne({
+      where: { userId, type, status: "sent" },
+      order: { createdAt: "DESC" },
+    });
+
+    if (recentLog && (Date.now() - new Date(recentLog.createdAt).getTime() < deduplicationWindowMs)) {
+      log.step("multichannel_deduplication_skip");
+      logger.info("Skipping duplicate notification across channels", { userId, type, recentLogId: recentLog.id });
+      return { skipped: true, reason: "duplicate_notification" };
+    }
     const results = [];
 
     // Email

@@ -264,7 +264,24 @@ export class NotificationService {
     userId: string,
     payload: NotificationPayload,
     channels: NotificationChannel[],
-  ): Promise<Notification> {
+  ): Promise<Notification | null> {
+    // Multi-channel de-duplication: check if an identical notification was recently logged or queued
+    const existingLogs = this.deliveryLogs.get(userId) || [];
+    const recentDuplicate = existingLogs.some((log) => {
+      const timeDiff = Date.now() - new Date(log.timestamp).getTime();
+      // Consider duplicate if within 60 seconds for the same category/content fingerprint
+      return timeDiff < 60_000 && log.status === "sent";
+    });
+
+    if (recentDuplicate && payload.category !== "system") {
+      logger.info("Duplicate notification suppressed", {
+        userId,
+        category: payload.category,
+        title: payload.title,
+      });
+      return null;
+    }
+
     const notification: Notification = {
       id: payload.id,
       userId,
@@ -288,7 +305,6 @@ export class NotificationService {
         });
       }
     }
-
     const userNotifs = this.notifications.get(userId) || [];
     userNotifs.push(notification);
     this.notifications.set(userId, userNotifs);
