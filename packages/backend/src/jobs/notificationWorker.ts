@@ -29,6 +29,7 @@ export const setupNotificationWorker = () => {
     log.step("load_user_preference");
 
     const targetChannels = channels || ["email", "sms", "push"];
+    const payloadKey = job.data.payloadKey || job.data.id || JSON.stringify(data);
     const results = [];
 
     // Email
@@ -37,9 +38,17 @@ export const setupNotificationWorker = () => {
       userPref.emailEnabled &&
       userPref.email
     ) {
+      const existingEmailLog = await logRepo.findOne({
+        where: { userId, channel: "email", type, status: "sent" },
+        order: { createdAt: "DESC" }
+      });
+      if (existingEmailLog && JSON.stringify(existingEmailLog.payload) === JSON.stringify(job.data)) {
+        log.step("email_deduplicated");
+        results.push({ channel: "email", status: "skipped_duplicate" });
+      } else {
       try {
         await emailService.sendTemplate(userPref.email, type, data);
-        const log = logRepo.create({
+          const logEntry = logRepo.create({
           userId,
           channel: "email",
           type,
@@ -47,10 +56,10 @@ export const setupNotificationWorker = () => {
           status: "sent",
           attempts: job.attemptsMade + 1,
         });
-        await logRepo.save(log);
+          await logRepo.save(logEntry);
         results.push({ channel: "email", status: "success" });
       } catch (error: any) {
-        const log = logRepo.create({
+          const logEntry = logRepo.create({
           userId,
           channel: "email",
           type,
@@ -59,13 +68,14 @@ export const setupNotificationWorker = () => {
           errorMessage: error.message,
           attempts: job.attemptsMade + 1,
         });
-        await logRepo.save(log);
+          await logRepo.save(logEntry);
         results.push({
           channel: "email",
           status: "error",
           error: error.message,
         });
       }
+    }
     }
 
     // SMS
@@ -74,9 +84,17 @@ export const setupNotificationWorker = () => {
       userPref.smsEnabled &&
       userPref.phoneNumber
     ) {
+      const existingSmsLog = await logRepo.findOne({
+        where: { userId, channel: "sms", type, status: "sent" },
+        order: { createdAt: "DESC" }
+      });
+      if (existingSmsLog && JSON.stringify(existingSmsLog.payload) === JSON.stringify(job.data)) {
+        log.step("sms_deduplicated");
+        results.push({ channel: "sms", status: "skipped_duplicate" });
+      } else {
       try {
         await smsService.sendSMS(userPref.phoneNumber, `${type}: ${JSON.stringify(data)}`, userId);
-        const log = logRepo.create({
+          const logEntry = logRepo.create({
           userId,
           channel: "sms",
           type,
@@ -84,10 +102,10 @@ export const setupNotificationWorker = () => {
           status: "sent",
           attempts: job.attemptsMade + 1,
         });
-        await logRepo.save(log);
+          await logRepo.save(logEntry);
         results.push({ channel: "sms", status: "success" });
       } catch (error: any) {
-        const log = logRepo.create({
+          const logEntry = logRepo.create({
           userId,
           channel: "sms",
           type,
@@ -96,9 +114,10 @@ export const setupNotificationWorker = () => {
           errorMessage: error.message,
           attempts: job.attemptsMade + 1,
         });
-        await logRepo.save(log);
+          await logRepo.save(logEntry);
         results.push({ channel: "sms", status: "error", error: error.message });
       }
+    }
     }
 
     // Push
@@ -107,9 +126,17 @@ export const setupNotificationWorker = () => {
       userPref.pushEnabled &&
       userPref.fcmToken
     ) {
+      const existingPushLog = await logRepo.findOne({
+        where: { userId, channel: "push", type, status: "sent" },
+        order: { createdAt: "DESC" }
+      });
+      if (existingPushLog && JSON.stringify(existingPushLog.payload) === JSON.stringify(job.data)) {
+        log.step("push_deduplicated");
+        results.push({ channel: "push", status: "skipped_duplicate" });
+      } else {
       try {
         await pushNotificationService.sendPush(userId, type, { data });
-        const log = logRepo.create({
+          const logEntry = logRepo.create({
           userId,
           channel: "push",
           type,
@@ -117,10 +144,10 @@ export const setupNotificationWorker = () => {
           status: "sent",
           attempts: job.attemptsMade + 1,
         });
-        await logRepo.save(log);
+          await logRepo.save(logEntry);
         results.push({ channel: "push", status: "success" });
       } catch (error: any) {
-        const log = logRepo.create({
+          const logEntry = logRepo.create({
           userId,
           channel: "push",
           type,
@@ -129,12 +156,13 @@ export const setupNotificationWorker = () => {
           errorMessage: error.message,
           attempts: job.attemptsMade + 1,
         });
-        await logRepo.save(log);
+          await logRepo.save(logEntry);
         results.push({
           channel: "push",
           status: "error",
           error: error.message,
         });
+        }
       }
     }
 

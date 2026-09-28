@@ -36,6 +36,7 @@ export class NotificationService {
   }
 
   private preferences: Map<string, NotificationPreference[]> = new Map();
+  private sentNotificationsCache: Set<string> = new Set();
   private settings: Map<string, UserNotificationSettings> = new Map();
   private notifications: Map<string, Notification[]> = new Map();
   private deliveryLogs: Map<string, DeliveryLog[]> = new Map();
@@ -43,6 +44,23 @@ export class NotificationService {
   // -------------------------------------------------------------------------
   // User settings & preferences
   // -------------------------------------------------------------------------
+
+  /**
+   * Check if a notification has already been sent for the given user, channel, type, and payload key/hash within a deduplication window.
+   */
+  async isDuplicateNotification(userId: string, channel: string, type: string, payloadKey?: string): Promise<boolean> {
+    const key = `${userId}:${channel}:${type}:${payloadKey || ''}`;
+    if (this.sentNotificationsCache.has(key)) {
+      return true;
+    }
+    return false;
+  }
+
+  /** Record a notification as sent for deduplication. */
+  async recordNotificationSent(userId: string, channel: string, type: string, payloadKey?: string): Promise<void> {
+    const key = `${userId}:${channel}:${type}:${payloadKey || ''}`;
+    this.sentNotificationsCache.add(key);
+  }
 
   /** Push-channel notification stub (no live provider wired yet). */
   async sendPushNotification(
