@@ -1,25 +1,25 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
-import { setupNotificationWorker } from "../../packages/backend/src/jobs/notificationWorker";
-import { AppDataSource } from "../../packages/backend/src/db/dataSource";
-import { NotificationLog } from "../../packages/backend/src/db/entities/NotificationLog";
-import { UserPreference } from "../../packages/backend/src/db/entities/UserPreference";
+import { setupNotificationWorker } from "../../src/jobs/notificationWorker";
+import { AppDataSource } from "../../src/db/dataSource";
+import { NotificationLog } from "../../src/db/entities/NotificationLog";
+import { UserPreference } from "../../src/db/entities/UserPreference";
 
 const sendTemplateMock = jest.fn().mockResolvedValue(true);
 const sendSMSMock = jest.fn().mockResolvedValue({ id: "sms-1" });
 const sendPushMock = jest.fn().mockResolvedValue({ successful: 1, failed: 0 });
 
-jest.mock("../../packages/backend/src/services/EmailService", () => ({
+jest.mock("../../src/services/EmailService", () => ({
   emailService: { sendTemplate: (...args: any[]) => sendTemplateMock(...args) },
 }));
-jest.mock("../../packages/backend/src/services/SMSService", () => ({
+jest.mock("../../src/services/SMSService", () => ({
   smsService: { sendSMS: (...args: any[]) => sendSMSMock(...args) },
 }));
-jest.mock("../../packages/backend/src/services/PushNotificationService", () => ({
+jest.mock("../../src/services/PushNotificationService", () => ({
   pushNotificationService: { sendPush: (...args: any[]) => sendPushMock(...args) },
 }));
 
 const processHandlers: Record<string, any> = {};
-jest.mock("../../packages/backend/src/jobs/notificationQueue", () => ({
+jest.mock("../../src/jobs/notificationQueue", () => ({
   notificationQueue: {
     process: jest.fn((cb) => {
       processHandlers["process"] = cb;
