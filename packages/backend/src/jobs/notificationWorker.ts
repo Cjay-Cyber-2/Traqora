@@ -37,6 +37,21 @@ export const setupNotificationWorker = () => {
       userPref.emailEnabled &&
       userPref.email
     ) {
+      const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000);
+      const recentEmailLog = await logRepo.findOne({
+        where: {
+          userId,
+          channel: "email",
+          type,
+          status: "sent",
+        },
+        order: { createdAt: "DESC" },
+      });
+
+      if (recentEmailLog && new Date(recentEmailLog.createdAt) > FIVE_MINUTES_AGO) {
+        log.step("email_deduplicated");
+        results.push({ channel: "email", status: "skipped_duplicate" });
+      } else {
       try {
         await emailService.sendTemplate(userPref.email, type, data);
         const log = logRepo.create({
@@ -67,6 +82,7 @@ export const setupNotificationWorker = () => {
         });
       }
     }
+    }
 
     // SMS
     if (
@@ -74,6 +90,21 @@ export const setupNotificationWorker = () => {
       userPref.smsEnabled &&
       userPref.phoneNumber
     ) {
+      const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000);
+      const recentSmsLog = await logRepo.findOne({
+        where: {
+          userId,
+          channel: "sms",
+          type,
+          status: "sent",
+        },
+        order: { createdAt: "DESC" },
+      });
+
+      if (recentSmsLog && new Date(recentSmsLog.createdAt) > FIVE_MINUTES_AGO) {
+        log.step("sms_deduplicated");
+        results.push({ channel: "sms", status: "skipped_duplicate" });
+      } else {
       try {
         await smsService.sendSMS(userPref.phoneNumber, `${type}: ${JSON.stringify(data)}`, userId);
         const log = logRepo.create({
@@ -100,6 +131,7 @@ export const setupNotificationWorker = () => {
         results.push({ channel: "sms", status: "error", error: error.message });
       }
     }
+    }
 
     // Push
     if (
@@ -107,6 +139,21 @@ export const setupNotificationWorker = () => {
       userPref.pushEnabled &&
       userPref.fcmToken
     ) {
+      const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000);
+      const recentPushLog = await logRepo.findOne({
+        where: {
+          userId,
+          channel: "push",
+          type,
+          status: "sent",
+        },
+        order: { createdAt: "DESC" },
+      });
+
+      if (recentPushLog && new Date(recentPushLog.createdAt) > FIVE_MINUTES_AGO) {
+        log.step("push_deduplicated");
+        results.push({ channel: "push", status: "skipped_duplicate" });
+      } else {
       try {
         await pushNotificationService.sendPush(userId, type, { data });
         const log = logRepo.create({
@@ -135,6 +182,7 @@ export const setupNotificationWorker = () => {
           status: "error",
           error: error.message,
         });
+        }
       }
     }
 

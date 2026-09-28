@@ -38,6 +38,8 @@ export class NotificationService {
   private preferences: Map<string, NotificationPreference[]> = new Map();
   private settings: Map<string, UserNotificationSettings> = new Map();
   private notifications: Map<string, Notification[]> = new Map();
+  private notificationLogs: Map<string, DeliveryLog[]> = new Map();
+  private deduplicationWindowMs: number = 5 * 60 * 1000; // 5 minutes
   private deliveryLogs: Map<string, DeliveryLog[]> = new Map();
 
   // -------------------------------------------------------------------------
@@ -66,6 +68,38 @@ export class NotificationService {
   ): Promise<boolean> {
     logger.info('Sending price alert', { userId });
     return this.sendPushNotification(userId, message, data);
+  }
+
+  /**
+   * Check if a notification for the given user, channel, and type has already been sent within the deduplication window.
+   */
+  async isDuplicateNotification(userId: string, channel: NotificationChannel, type: string): Promise<boolean> {
+    const logs = this.deliveryLogs.get(userId) || [];
+    const now = Date.now();
+    return logs.some(
+      (log) =>
+        log.channel === channel &&
+        log.type === type &&
+        log.status === "sent" &&
+        now - new Date(log.timestamp).getTime() < this.deduplicationWindowMs
+    );
+  }
+
+  /**
+   * Record a delivery attempt or success in memory logs for de-duplication.
+   */
+  async recordDeliveryLog(userId: string, channel: NotificationChannel, type: string, status: DeliveryStatus, errorMessage?: string): Promise<void> {
+    const logs = this.deliveryLogs.get(userId) || [];
+    logs.push({
+      id: `log-${Date.now()}-${Math.random()}`,
+      userId,
+      channel,
+      type,
+      status,
+      errorMessage,
+      timestamp: new Date(),
+    });
+    this.deliveryLogs.set(userId, logs);
   }
 
   /** Flight-status change notification for a subscribed user. */
