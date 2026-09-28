@@ -105,6 +105,19 @@ export function getTierInfo(tier: LoyaltyTier): TierInfo | undefined {
   return TIERS.find(t => t.tier === tier);
 }
 
+export function recalculateTierIdempotent(account: LoyaltyAccount, tierHistory?: TierHistoryEntry[]): { updatedTier: LoyaltyTier; changed: boolean } {
+  const eligibleTier = TIERS.slice()
+    .reverse()
+    .find(t => account.totalPoints >= t.minPoints);
+  
+  const targetTier = eligibleTier ? eligibleTier.tier : TIERS[0].tier;
+  const changed = account.tier !== targetTier;
+  return {
+    updatedTier: targetTier,
+    changed,
+  };
+}
+
 export function calculateTierProgression(account: LoyaltyAccount): TierProgression {
   const currentTierInfo = TIERS.find(t => t.tier === account.tier);
   if (!currentTierInfo) {
