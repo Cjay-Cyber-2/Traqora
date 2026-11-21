@@ -87,3 +87,43 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+fn test_supplier_booking_reference_persistence_and_access_control() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 50_0000000i128;
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    let initial = contracts.booking.get_booking(&booking_id).unwrap();
+    assert!(initial.supplier_booking_reference.is_none());
+
+    // Airline can set supplier booking reference
+    let supplier_ref = soroban_sdk::String::from_str(&env, "SUPPLIER-PNR-XYZ789");
+    contracts
+        .booking
+        .set_supplier_booking_reference(&actors.airline, &booking_id, &supplier_ref);
+
+    let updated = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(updated.supplier_booking_reference.unwrap(), supplier_ref);
+
+    // Unauthorized user (e.g. admin or third party) cannot set supplier reference
+    let unauthorized_res = contracts.booking.try_set_supplier_booking_reference(
+        &actors.admin,
+        &booking_id,
+        &soroban_sdk::String::from_str(&env, "MALICIOUS-REF"),
+    );
+    assert!(unauthorized_res.is_err());
+}

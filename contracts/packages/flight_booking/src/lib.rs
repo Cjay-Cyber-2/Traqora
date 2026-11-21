@@ -22,6 +22,7 @@ pub struct Booking {
     pub escrowed_amount: i128,
     pub state: BookingState,
     pub created_at: u64,
+    pub supplier_booking_reference: Option<soroban_sdk::String>,
 }
 
 #[contracttype]
@@ -63,6 +64,7 @@ impl FlightBookingContract {
             escrowed_amount: amount,
             state: BookingState::Confirmed,
             created_at,
+            supplier_booking_reference: None,
         };
 
         env.storage()
@@ -88,6 +90,31 @@ impl FlightBookingContract {
         );
 
         booking_id
+    }
+
+    pub fn set_supplier_booking_reference(
+        env: Env,
+        caller: Address,
+        booking_id: u64,
+        supplier_ref: soroban_sdk::String,
+    ) {
+        caller.require_auth();
+        let mut booking = Self::get_booking(env.clone(), booking_id).expect("Booking not found");
+
+        assert!(caller == booking.passenger, "Unauthorized caller");
+
+        booking.supplier_booking_reference = Some(supplier_ref);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Booking(booking_id), &booking);
+
+        let redacted = soroban_sdk::String::from_str(&env, "[REDACTED-REF]");
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Oracle,
+            (caller, env.ledger().timestamp(), booking_id, redacted),
+        );
     }
 
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {

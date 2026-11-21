@@ -39,6 +39,7 @@ pub struct Booking {
     pub amount_escrowed: i128,
     pub status: Symbol, // "pending", "confirmed", "completed", "cancelled", "refunded"
     pub created_at: u64,
+    pub supplier_booking_reference: Option<String>,
 }
 
 #[contracttype]
@@ -157,6 +158,7 @@ impl BookingContract {
             amount_escrowed: 0,
             status: symbol_short!("pending"),
             created_at: env.ledger().timestamp(),
+            supplier_booking_reference: None,
         };
 
         BookingStorage::set(&env, booking_id, &booking);
@@ -330,6 +332,34 @@ impl BookingContract {
         env.storage()
             .persistent()
             .extend_ttl(&booking_id, /* delta = */ 0);
+    }
+
+    // Record or update supplier booking reference safely with access control and redacted logging
+    pub fn set_supplier_booking_reference(
+        env: Env,
+        caller: Address,
+        booking_id: u64,
+        supplier_ref: String,
+    ) {
+        caller.require_auth();
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
+        assert!(
+            caller == booking.airline || caller == booking.passenger,
+            "Unauthorized caller for supplier reference"
+        );
+
+        booking.supplier_booking_reference = Some(supplier_ref.clone());
+        BookingStorage::set(&env, booking_id, &booking);
+
+        // Redacted operational logging: mask sensitive supplier identifiers or raw tokens
+        let redacted_ref = String::from_str(&env, "[REDACTED-REF]");
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Oracle,
+            (caller, env.ledger().timestamp(), booking_id, redacted_ref),
+        );
     }
 
     // Helper to get booking details
