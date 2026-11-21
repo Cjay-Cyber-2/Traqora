@@ -199,6 +199,47 @@ fn test_cancel_flight_and_unauthorized_changes() {
 }
 
 #[test]
+fn test_reconcile_and_reserve_seat_idempotency_and_prevention() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ901"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1_800_000_000,
+        &1_800_050_000,
+        &50,
+        &100_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    let id_ref = Symbol::new(&env, "dup_booking_ref_1");
+
+    let res1 =
+        contracts
+            .airline
+            .reconcile_and_reserve_seat(&actors.airline, &flight_id, id_ref.clone());
+    assert_eq!(res1, flight_id);
+
+    let flight_mid = contracts.airline.get_flight(&flight_id).unwrap();
+    assert_eq!(flight_mid.available_seats, 49);
+
+    // Duplicate submission with same idempotent reference should not decrement further
+    let res2 = contracts
+        .airline
+        .reconcile_and_reserve_seat(&actors.airline, &flight_id, id_ref);
+    assert_eq!(res2, flight_id);
+
+    let flight_final = contracts.airline.get_flight(&flight_id).unwrap();
+    assert_eq!(flight_final.available_seats, 49);
+}
+
+#[test]
 fn test_batch_create_flights_partial_failure() {
     let env = new_env();
     let actors = generate_actors(&env);
@@ -380,11 +421,10 @@ fn test_reconcile_and_reserve_seat_timeout_recovery() {
     assert_eq!(flight_after_first.available_seats, 9);
 
     // Retry with same request reference after timeout (should reconcile and return existing mapping without decrementing again)
-    let res2 = contracts.airline.reconcile_and_reserve_seat(
-        &actors.airline,
-        &flight_id,
-        request_ref,
-    );
+    let res2 =
+        contracts
+            .airline
+            .reconcile_and_reserve_seat(&actors.airline, &flight_id, request_ref);
     assert_eq!(res2, flight_id);
 
     let flight_after_retry = contracts.airline.get_flight(&flight_id).unwrap();
