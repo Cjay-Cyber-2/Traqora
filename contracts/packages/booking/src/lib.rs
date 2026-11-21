@@ -26,9 +26,18 @@ pub trait BookingReceiptInterface {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct PassengerIdentity {
+    pub full_name: String,
+    pub passport_number: String,
+    pub nationality: String,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct Booking {
     pub booking_id: u64,
     pub passenger: Address,
+    pub passenger_identity: PassengerIdentity,
     pub airline: Address,
     pub flight_number: Symbol,
     pub from_airport: Symbol,
@@ -39,6 +48,7 @@ pub struct Booking {
     pub amount_escrowed: i128,
     pub status: Symbol, // "pending", "confirmed", "completed", "cancelled", "refunded"
     pub created_at: u64,
+    pub supplier_booking_reference: Option<String>,
 }
 
 #[contracttype]
@@ -132,6 +142,7 @@ impl BookingContract {
     pub fn create_booking(
         env: Env,
         passenger: Address,
+        passenger_identity: PassengerIdentity,
         airline: Address,
         flight_number: Symbol,
         from_airport: Symbol,
@@ -141,12 +152,22 @@ impl BookingContract {
         token: Address,
     ) -> u64 {
         passenger.require_auth();
+        assert!(passenger_identity.full_name.len() > 0, "Invalid full name");
+        assert!(
+            passenger_identity.passport_number.len() > 0,
+            "Invalid passport number"
+        );
+        assert!(
+            passenger_identity.nationality.len() > 0,
+            "Invalid nationality"
+        );
 
         let booking_id = BookingStorage::next_id(&env);
 
         let booking = Booking {
             booking_id,
             passenger,
+            passenger_identity,
             airline,
             flight_number,
             from_airport,
@@ -157,6 +178,7 @@ impl BookingContract {
             amount_escrowed: 0,
             status: symbol_short!("pending"),
             created_at: env.ledger().timestamp(),
+            supplier_booking_reference: None,
         };
 
         BookingStorage::set(&env, booking_id, &booking);
@@ -335,6 +357,60 @@ impl BookingContract {
     // Helper to get booking details
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
         BookingStorage::get(&env, booking_id)
+    }
+
+    // Record or update supplier booking reference with access control (airline or passenger)
+    pub fn set_supplier_booking_reference(
+        env: Env,
+        booking_id: u64,
+        caller: Address,
+        supplier_ref: String,
+    ) {
+        caller.require_auth();
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        assert!(
+            caller == booking.airline || caller == booking.passenger,
+            "Unauthorized to set supplier reference"
+        );
+        booking.supplier_booking_reference = Some(supplier_ref);
+        BookingStorage::set(&env, booking_id, &booking);
+
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Updated,
+            (
+                caller,
+                env.ledger().timestamp(),
+                booking_id,
+                symbol_short!("sup_ref"),
+            ),
+        );
+    }
+
+    // Redacted operational log helper for supplier booking reference
+    pub fn get_redacted_supplier_reference(
+        env: Env,
+        booking_id: u64,
+        viewer: Address,
+    ) -> Option<String> {
+        viewer.require_auth();
+        let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        assert!(
+            viewer == booking.airline || viewer == booking.passenger,
+            "Unauthorized viewer"
+        );
+        if let Some(ref_str) = booking.supplier_booking_reference {
+            let len = ref_str.len();
+            if len <= 4 {
+                Some(String::from_str(&env, "****"))
+            } else {
+                let mut redacted = String::from_str(&env, "****");
+                Some(redacted)
+            }
+        } else {
+            None
+        }
     }
 
     // Original API wrappers for backward compatibility

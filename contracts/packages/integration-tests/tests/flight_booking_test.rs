@@ -15,7 +15,12 @@ fn test_reserve_seat_happy_path() {
 
     let flight_id = Symbol::new(&env, "FL100");
     let seat = Symbol::new(&env, "12A");
-    let booking_id = client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    let booking_id = client.reserve_seat(&passenger, &identity, &flight_id, &seat, &1_000i128);
 
     let booking = client.get_booking(&booking_id).unwrap();
     assert_eq!(booking.booking_id, booking_id);
@@ -36,8 +41,35 @@ fn test_double_booking_rejected() {
 
     let flight_id = Symbol::new(&env, "FL100");
     let seat = Symbol::new(&env, "12A");
-    client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);
-    client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    client.reserve_seat(&passenger, &identity, &flight_id, &seat, &1_000i128);
+    client.reserve_seat(&passenger, &identity, &flight_id, &seat, &1_000i128);
+}
+
+#[test]
+#[should_panic(expected = "Invalid full name")]
+fn test_reserve_seat_invalid_passenger_name_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, ""),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    client.reserve_seat(
+        &passenger,
+        &identity,
+        &Symbol::new(&env, "FL100"),
+        &Symbol::new(&env, "12A"),
+        &1_000,
+    );
 }
 
 #[test]
@@ -64,8 +96,13 @@ fn test_double_booking_different_seat_same_flight_ok() {
     let flight_id = Symbol::new(&env, "FLEDGE");
     let seat_a = Symbol::new(&env, "12A");
     let seat_b = Symbol::new(&env, "12B");
-    let id_a = client.reserve_seat(&passenger, &flight_id, &seat_a, &1_000);
-    let id_b = client.reserve_seat(&passenger, &flight_id, &seat_b, &1_000);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    let id_a = client.reserve_seat(&passenger, &identity, &flight_id, &seat_a, &1_000);
+    let id_b = client.reserve_seat(&passenger, &identity, &flight_id, &seat_b, &1_000);
     assert_ne!(id_a, id_b);
     assert_eq!(client.get_booking(&id_a).unwrap().seat, seat_a);
     assert_eq!(client.get_booking(&id_b).unwrap().seat, seat_b);
@@ -81,8 +118,13 @@ fn test_double_booking_same_seat_different_flight_ok() {
     let seat = Symbol::new(&env, "12A");
     let flight_a = Symbol::new(&env, "FLA");
     let flight_b = Symbol::new(&env, "FLB");
-    let id_a = client.reserve_seat(&passenger, &flight_a, &seat, &500);
-    let id_b = client.reserve_seat(&passenger, &flight_b, &seat, &500);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    let id_a = client.reserve_seat(&passenger, &identity, &flight_a, &seat, &500);
+    let id_b = client.reserve_seat(&passenger, &identity, &flight_b, &seat, &500);
     assert_ne!(id_a, id_b);
 }
 
@@ -99,7 +141,12 @@ fn test_cancelled_flight_state_is_confirmed_not_cancelled() {
     let client = FlightBookingContractClient::new(&env, &contract_id);
     let flight_id = Symbol::new(&env, "FLCANCEL");
     let seat = Symbol::new(&env, "10A");
-    let booking_id = client.reserve_seat(&passenger, &flight_id, &seat, &2_000);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    let booking_id = client.reserve_seat(&passenger, &identity, &flight_id, &seat, &2_000);
     let booking = client.get_booking(&booking_id).unwrap();
     assert_eq!(booking.state, flight_booking::BookingState::Confirmed);
     assert_ne!(booking.state, flight_booking::BookingState::Cancelled);
@@ -115,9 +162,14 @@ fn test_cancelled_flight_seat_still_reserved() {
     let client = FlightBookingContractClient::new(&env, &contract_id);
     let flight_id = Symbol::new(&env, "FLCANCEL2");
     let seat = Symbol::new(&env, "11A");
-    client.reserve_seat(&passenger, &flight_id, &seat, &1_000);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    client.reserve_seat(&passenger, &identity, &flight_id, &seat, &1_000);
     // Seat remains reserved even if flight conceptually cancelled — deterministic
-    let res = client.try_reserve_seat(&passenger, &flight_id, &seat, &1_000);
+    let res = client.try_reserve_seat(&passenger, &identity, &flight_id, &seat, &1_000);
     assert!(res.is_err());
 }
 
@@ -143,7 +195,12 @@ fn test_non_existent_flight_reserve_succeeds_and_is_retrievable() {
     let client = FlightBookingContractClient::new(&env, &contract_id);
     let unknown_flight = Symbol::new(&env, "UNKNOWN9999");
     let seat = Symbol::new(&env, "9Z");
-    let booking_id = client.reserve_seat(&passenger, &unknown_flight, &seat, &750);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    let booking_id = client.reserve_seat(&passenger, &identity, &unknown_flight, &seat, &750);
     let booking = client.get_booking(&booking_id).unwrap();
     assert_eq!(booking.flight_id, unknown_flight);
     assert_eq!(booking.seat, seat);
@@ -159,8 +216,14 @@ fn test_capacity_overflow_zero_amount_rejected() {
     let passenger = Address::generate(&env);
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
     client.reserve_seat(
         &passenger,
+        &identity,
         &Symbol::new(&env, "FLCAP"),
         &Symbol::new(&env, "1A"),
         &0,
@@ -175,8 +238,14 @@ fn test_capacity_overflow_negative_amount_rejected() {
     let passenger = Address::generate(&env);
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
     client.reserve_seat(
         &passenger,
+        &identity,
         &Symbol::new(&env, "FLCAP"),
         &Symbol::new(&env, "1B"),
         &-1,
@@ -191,8 +260,14 @@ fn test_capacity_overflow_large_amount_succeeds() {
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
     let large = i128::MAX / 2;
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
     let booking_id = client.reserve_seat(
         &passenger,
+        &identity,
         &Symbol::new(&env, "FLLARGE"),
         &Symbol::new(&env, "1A"),
         &large,
@@ -217,15 +292,21 @@ fn test_capacity_overflow_booking_id_increments_deterministically() {
         Symbol::new(&env, "1D"),
         Symbol::new(&env, "1E"),
     ];
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
     let mut last_id = 0;
     for (idx, seat) in seats.iter().enumerate() {
-        let id = client.reserve_seat(&passenger, &flight_id, seat, &1_000);
+        let id = client.reserve_seat(&passenger, &identity, &flight_id, seat, &1_000);
         assert_eq!(id, (idx as u64) + 1);
         last_id = id;
     }
     assert_eq!(last_id, 5);
     let next = client.reserve_seat(
         &passenger,
+        &identity,
         &Symbol::new(&env, "FLOTHER"),
         &Symbol::new(&env, "9Z"),
         &1_000,
@@ -253,8 +334,13 @@ fn test_capacity_overflow_many_seats_same_flight() {
         Symbol::new(&env, "2D"),
         Symbol::new(&env, "2E"),
     ];
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
     for seat in seats.iter() {
-        let id = client.reserve_seat(&passenger, &flight_id, seat, &500);
+        let id = client.reserve_seat(&passenger, &identity, &flight_id, seat, &500);
         assert_eq!(client.get_booking(&id).unwrap().flight_id, flight_id);
     }
     assert_eq!(client.get_booking(&10).unwrap().booking_id, 10);
@@ -269,8 +355,14 @@ fn test_auth_failure_without_mock_all_auths() {
     let passenger = Address::generate(&env);
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
     let res = client.try_reserve_seat(
         &passenger,
+        &identity,
         &Symbol::new(&env, "FLAUTH"),
         &Symbol::new(&env, "12A"),
         &1_000,
@@ -288,11 +380,16 @@ fn test_auth_failure_seat_taken_by_other_passenger_still_blocked() {
     let client = FlightBookingContractClient::new(&env, &contract_id);
     let flight_id = Symbol::new(&env, "FLAUTH2");
     let seat = Symbol::new(&env, "12A");
-    let id = client.reserve_seat(&passenger, &flight_id, &seat, &1_000);
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
+    let id = client.reserve_seat(&passenger, &identity, &flight_id, &seat, &1_000);
     let booking = client.get_booking(&id).unwrap();
     assert_eq!(booking.passenger, passenger);
     assert_ne!(booking.passenger, other);
-    let res = client.try_reserve_seat(&other, &flight_id, &seat, &1_000);
+    let res = client.try_reserve_seat(&other, &identity, &flight_id, &seat, &1_000);
     assert!(res.is_err());
 }
 
@@ -307,7 +404,12 @@ fn test_deterministic_same_inputs_same_sequence() {
         env.ledger().set_timestamp(1_000);
         let flight_id = Symbol::new(&env, "FLDET");
         let seat = Symbol::new(&env, "10A");
-        let id1 = client.reserve_seat(&passenger, &flight_id, &seat, &1_000);
+        let identity = flight_booking::PassengerIdentity {
+            full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+            passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+            nationality: soroban_sdk::String::from_str(&env, "USA"),
+        };
+        let id1 = client.reserve_seat(&passenger, &identity, &flight_id, &seat, &1_000);
         assert_eq!(id1, 1);
         // capture event before view call (view may affect event buffer)
         let events_len = env.events().all().len();
@@ -329,12 +431,31 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let flight_id = Symbol::new(&env, "FLRECON");
     let seat = Symbol::new(&env, "15A");
     let request_ref = Symbol::new(&env, "timeout_ref_999");
+    let identity = flight_booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "Jane Doe"),
+        passport_number: soroban_sdk::String::from_str(&env, "AB123456"),
+        nationality: soroban_sdk::String::from_str(&env, "USA"),
+    };
 
-    let id1 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id1 = client.reconcile_booking_reference(
+        &passenger,
+        &identity,
+        &flight_id,
+        &seat,
+        &1_500,
+        &request_ref,
+    );
     let booking1 = client.get_booking(&id1).unwrap();
     assert_eq!(booking1.seat, seat);
 
     // Retry with same request ref after timeout should return the exact same booking id without duplicate reservation error
-    let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id2 = client.reconcile_booking_reference(
+        &passenger,
+        &identity,
+        &flight_id,
+        &seat,
+        &1_500,
+        &request_ref,
+    );
     assert_eq!(id1, id2);
 }

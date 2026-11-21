@@ -75,6 +75,8 @@ pub enum ContractError {
     BatchTooLarge = 205,
     /// Booking is already in a paid / confirmed state.
     AlreadyPaid = 206,
+    /// Passenger identity fields are missing or invalid.
+    InvalidPassengerIdentity = 207,
 
     // ── Refund  (300 – 399) ──────────────────────────────────────────────────
     /// No refund request exists for the supplied ID.
@@ -163,16 +165,42 @@ pub struct SimulationError {
 impl SimulationError {
     /// Map a raw simulation error string or diagnostic info into a typed, actionable client error.
     pub fn map_simulation_failure(env: &Env, raw_message: &str, diagnostic_context: &str) -> Self {
-        let (code, prefix) = if raw_message.contains("InsufficientBalance") || raw_message.contains("insufficient balance") {
-            (ContractError::SimulationInsufficientBalance, "Insufficient balance during simulation: ")
-        } else if raw_message.contains("Auth") || raw_message.contains("unauthorized") || raw_message.contains("sign") {
-            (ContractError::SimulationAuthFailure, "Authorization failure during simulation: ")
-        } else if raw_message.contains("Footprint") || raw_message.contains("ttl") || raw_message.contains("storage") {
-            (ContractError::SimulationFootprintError, "Footprint or storage error during simulation: ")
-        } else if raw_message.contains("Contract") || raw_message.contains("panic") || raw_message.contains("revert") {
-            (ContractError::SimulationContractRejection, "Contract rejection during simulation: ")
+        let (code, prefix) = if raw_message.contains("InsufficientBalance")
+            || raw_message.contains("insufficient balance")
+        {
+            (
+                ContractError::SimulationInsufficientBalance,
+                "Insufficient balance during simulation: ",
+            )
+        } else if raw_message.contains("Auth")
+            || raw_message.contains("unauthorized")
+            || raw_message.contains("sign")
+        {
+            (
+                ContractError::SimulationAuthFailure,
+                "Authorization failure during simulation: ",
+            )
+        } else if raw_message.contains("Footprint")
+            || raw_message.contains("ttl")
+            || raw_message.contains("storage")
+        {
+            (
+                ContractError::SimulationFootprintError,
+                "Footprint or storage error during simulation: ",
+            )
+        } else if raw_message.contains("Contract")
+            || raw_message.contains("panic")
+            || raw_message.contains("revert")
+        {
+            (
+                ContractError::SimulationContractRejection,
+                "Contract rejection during simulation: ",
+            )
         } else {
-            (ContractError::SimulationUnknownError, "Unknown simulation failure: ")
+            (
+                ContractError::SimulationUnknownError,
+                "Unknown simulation failure: ",
+            )
         };
 
         let mut msg_buf = soroban_sdk::String::from_str(env, prefix);

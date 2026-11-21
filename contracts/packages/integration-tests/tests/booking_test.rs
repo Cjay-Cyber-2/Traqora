@@ -11,8 +11,14 @@ fn test_payment_escrow_flow() {
     let price = 100_0000000i128; // 100 USDC
 
     // 1. Create booking
+    let identity = booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "John Smith"),
+        passport_number: soroban_sdk::String::from_str(&env, "XY987654"),
+        nationality: soroban_sdk::String::from_str(&env, "CAN"),
+    };
     let booking_id = contracts.booking.create_booking(
         &actors.passenger,
+        &identity,
         &actors.airline,
         &Symbol::new(&env, "FL123"),
         &Symbol::new(&env, "JFK"),
@@ -53,6 +59,31 @@ fn test_payment_escrow_flow() {
 }
 
 #[test]
+#[should_panic(expected = "Invalid passport number")]
+fn test_create_booking_invalid_passport_panics() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+    let identity = booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "John Smith"),
+        passport_number: soroban_sdk::String::from_str(&env, ""),
+        nationality: soroban_sdk::String::from_str(&env, "CAN"),
+    };
+    contracts.booking.create_booking(
+        &actors.passenger,
+        &identity,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &100_0000000,
+        &contracts.token.address,
+    );
+}
+
+#[test]
 fn test_refund_flow() {
     let env = new_env();
     env.ledger().set_timestamp(1700000000);
@@ -64,8 +95,14 @@ fn test_refund_flow() {
     let price = 100_0000000i128;
     let departure_time = 1705000000; // Far in the future
 
+    let identity = booking::PassengerIdentity {
+        full_name: soroban_sdk::String::from_str(&env, "John Smith"),
+        passport_number: soroban_sdk::String::from_str(&env, "XY987654"),
+        nationality: soroban_sdk::String::from_str(&env, "CAN"),
+    };
     let booking_id = contracts.booking.create_booking(
         &actors.passenger,
+        &identity,
         &actors.airline,
         &Symbol::new(&env, "FL123"),
         &Symbol::new(&env, "JFK"),
@@ -86,4 +123,41 @@ fn test_refund_flow() {
     let booking = contracts.booking.get_booking(&booking_id).unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
+}
+
+#[test]
+fn test_supplier_booking_reference_and_redaction() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 50_0000000i128;
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    let sup_ref = soroban_sdk::String::from_str(&env, "ABC123XYZ");
+    contracts
+        .booking
+        .set_supplier_booking_reference(&booking_id, &actors.airline, &sup_ref);
+
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert!(booking.supplier_booking_reference.is_some());
+
+    let redacted = contracts
+        .booking
+        .get_redacted_supplier_reference(&booking_id, &actors.passenger);
+    assert!(redacted.is_some());
+    assert_eq!(
+        redacted.unwrap(),
+        soroban_sdk::String::from_str(&env, "****")
+    );
 }
