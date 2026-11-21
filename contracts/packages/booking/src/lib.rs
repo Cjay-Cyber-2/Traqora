@@ -57,6 +57,30 @@ pub struct BatchCompleteBookingsResult {
     pub total_released: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PassengerIdentity {
+    pub full_name: String,
+    pub email: String,
+    pub phone: String,
+    pub document_type: String,
+    pub document_number: String,
+    pub date_of_birth: String,
+    pub nationality: String,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ValidationError {
+    MissingField,
+    InvalidEmail,
+    InvalidPhone,
+    InvalidDocumentNumber,
+    InvalidDateOfBirth,
+    InvalidNationality,
+    InvalidName,
+}
+
 pub struct BookingStorage;
 
 const MAX_BATCH_SIZE: u32 = 50;

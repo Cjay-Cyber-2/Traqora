@@ -338,3 +338,210 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
 }
+
+// ─── Passenger identity validation ─────────────────────────────────────────
+
+#[test]
+fn create_booking_with_valid_passengers_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let identity = flight_booking::PassengerIdentity {
+        full_name: String::from_str(&env, "John Doe"),
+        email: String::from_str(&env, "john.doe@example.com"),
+        phone: String::from_str(&env, "+15551234567"),
+        document_type: String::from_str(&env, "passport"),
+        document_number: String::from_str(&env, "A12345678"),
+        date_of_birth: String::from_str(&env, "1990-01-15"),
+        nationality: String::from_str(&env, "USA"),
+    };
+
+    let booking_id = client.reserve_seat(&passenger, &flight_id, &seat, &amount, &identity);
+    let booking = client.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.booking_id, booking_id);
+    assert_eq!(booking.flight_id, flight_id);
+    assert_eq!(booking.seat, seat);
+    assert_eq!(booking.escrowed_amount, amount);
+    assert_eq!(booking.state, flight_booking::BookingState::Confirmed);
+}
+
+#[test]
+#[should_panic(expected = "InvalidEmail")]
+fn create_booking_with_invalid_email_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let identity = flight_booking::PassengerIdentity {
+        full_name: String::from_str(&env, "John Doe"),
+        email: String::from_str(&env, "invalid-email"), // missing @ and .
+        phone: String::from_str(&env, "+15551234567"),
+        document_type: String::from_str(&env, "passport"),
+        document_number: String::from_str(&env, "A12345678"),
+        date_of_birth: String::from_str(&env, "1990-01-15"),
+        nationality: String::from_str(&env, "USA"),
+    };
+
+    // Should panic with InvalidEmail
+    client.reserve_seat(&passenger, &flight_id, &seat, &amount, &identity);
+    // No booking should be created
+    assert!(client.get_booking(&1).is_none());
+}
+
+#[test]
+#[should_panic(expected = "InvalidPhone")]
+fn create_booking_with_invalid_phone_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let identity = flight_booking::PassengerIdentity {
+        full_name: String::from_str(&env, "John Doe"),
+        email: String::from_str(&env, "john.doe@example.com"),
+        phone: String::from_str(&env, "15551234567"), // missing +
+        document_type: String::from_str(&env, "passport"),
+        document_number: String::from_str(&env, "A12345678"),
+        date_of_birth: String::from_str(&env, "1990-01-15"),
+        nationality: String::from_str(&env, "USA"),
+    };
+
+    // Should panic with InvalidPhone
+    client.reserve_seat(&passenger, &flight_id, &seat, &amount, &identity);
+    // No booking should be created
+    assert!(client.get_booking(&1).is_none());
+}
+
+#[test]
+#[should_panic(expected = "InvalidDocumentNumber")]
+fn create_booking_with_missing_document_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let identity = flight_booking::PassengerIdentity {
+        full_name: String::from_str(&env, "John Doe"),
+        email: String::from_str(&env, "john.doe@example.com"),
+        phone: String::from_str(&env, "+15551234567"),
+        document_type: String::from_str(&env, "invalid_type"), // not a known type
+        document_number: String::from_str(&env, "A12345678"),
+        date_of_birth: String::from_str(&env, "1990-01-15"),
+        nationality: String::from_str(&env, "USA"),
+    };
+
+    // Should panic with InvalidDocumentNumber
+    client.reserve_seat(&passenger, &flight_id, &seat, &amount, &identity);
+    // No booking should be created
+    assert!(client.get_booking(&1).is_none());
+}
+
+#[test]
+#[should_panic(expected = "InvalidName")]
+fn create_booking_with_empty_name_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let identity = flight_booking::PassengerIdentity {
+        full_name: String::from_str(&env, ""), // empty name
+        email: String::from_str(&env, "john.doe@example.com"),
+        phone: String::from_str(&env, "+15551234567"),
+        document_type: String::from_str(&env, "passport"),
+        document_number: String::from_str(&env, "A12345678"),
+        date_of_birth: String::from_str(&env, "1990-01-15"),
+        nationality: String::from_str(&env, "USA"),
+    };
+
+    // Should panic with InvalidName
+    client.reserve_seat(&passenger, &flight_id, &seat, &amount, &identity);
+    // No booking should be created
+    assert!(client.get_booking(&1).is_none());
+}
+
+#[test]
+#[should_panic(expected = "InvalidDateOfBirth")]
+fn create_booking_with_invalid_dob_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let identity = flight_booking::PassengerIdentity {
+        full_name: String::from_str(&env, "John Doe"),
+        email: String::from_str(&env, "john.doe@example.com"),
+        phone: String::from_str(&env, "+15551234567"),
+        document_type: String::from_str(&env, "passport"),
+        document_number: String::from_str(&env, "A12345678"),
+        date_of_birth: String::from_str(&env, "15-01-1990"), // wrong format
+        nationality: String::from_str(&env, "USA"),
+    };
+
+    // Should panic with InvalidDateOfBirth
+    client.reserve_seat(&passenger, &flight_id, &seat, &amount, &identity);
+    // No booking should be created
+    assert!(client.get_booking(&1).is_none());
+}
+
+#[test]
+#[should_panic(expected = "InvalidNationality")]
+fn create_booking_with_invalid_nationality_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let identity = flight_booking::PassengerIdentity {
+        full_name: String::from_str(&env, "John Doe"),
+        email: String::from_str(&env, "john.doe@example.com"),
+        phone: String::from_str(&env, "+15551234567"),
+        document_type: String::from_str(&env, "passport"),
+        document_number: String::from_str(&env, "A12345678"),
+        date_of_birth: String::from_str(&env, "1990-01-15"),
+        nationality: String::from_str(&env, "usa"), // lowercase
+    };
+
+    // Should panic with InvalidNationality
+    client.reserve_seat(&passenger, &flight_id, &seat, &amount, &identity);
+    // No booking should be created
+    assert!(client.get_booking(&1).is_none());
+}
