@@ -8,6 +8,15 @@ use soroban_sdk::{
     String, Symbol, Vec,
 };
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecoveryStatus {
+    Normal,
+    PaymentPendingTimeout,
+    ContractPending,
+    SupplierTimeout,
+}
+
 #[contractclient(name = "BookingReceiptClient")]
 #[allow(clippy::too_many_arguments)]
 pub trait BookingReceiptInterface {
@@ -601,5 +610,225 @@ impl BookingContract {
                 refunded_amount,
             ),
         );
+    }
+
+    // Failure recovery: supplier timeout - refund passenger after departure timeout
+    pub fn recover_supplier_timeout(env: Env, booking_id: u64) {
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        
+        assert!(
+            booking.status == symbol_short!("confirmed"),
+            "Only confirmed bookings can recover from supplier timeout"
+        );
+        assert!(booking.amount_escrowed > 0, "No funds in escrow");
+        
+        let current_time = env.ledger().timestamp();
+        let timeout_threshold = booking.departure_time + 86400; // 24h after departure
+        assert!(current_time > timeout_threshold, "Timeout threshold not reached");
+        
+        let token_client = token::Client::new(&env, &booking.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &booking.passenger,
+            &booking.amount_escrowed,
+        );
+        
+        let refunded_amount = booking.amount_escrowed;
+        booking.amount_escrowed = 0;
+        booking.status = symbol_short!("refunded");
+        BookingStorage::set(&env, booking_id, &booking);
+        
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Refunded,
+            (
+                env.current_contract_address(),
+                current_time,
+                booking_id,
+                refunded_amount,
+            ),
+        );
+    }
+
+    // Failure recovery: payment pending - cancel booking after grace period
+    pub fn recover_payment_pending(env: Env, booking_id: u64) {
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        
+        assert!(
+            booking.status == symbol_short!("pending"),
+            "Only pending bookings can recover payment"
+        );
+        
+        let current_time = env.ledger().timestamp();
+        const PAYMENT_GRACE_PERIOD: u64 = 86400; // 24 hours
+        assert!(current_time >= booking.created_at + PAYMENT_GRACE_PERIOD, "Grace period not elapsed");
+        
+        booking.status = symbol_short!("cancelled");
+        BookingStorage::set(&env, booking_id, &booking);
+        
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Cancelled,
+            (
+                booking.passenger.clone(),
+                current_time,
+                booking_id,
+                0i128,
+                0i128,
+            ),
+        );
+    }
+
+    // Failure recovery: contract pending - attempt to collect payment from passenger
+    pub fn recover_contract_pending(env: Env, booking_id: u64) {
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        
+        assert!(
+            booking.status == symbol_short!("confirmed") && booking.amount_escrowed == 0,
+            "Only confirmed bookings with zero escrow can recover contract state"
+        );
+        
+        let token_client = token::Client::new(&env, &booking.token);
+        let passenger_balance = token_client.balance(&booking.passenger);
+        
+        if passenger_balance >= booking.price {
+            token_client.transfer(
+                &booking.passenger,
+                &env.current_contract_address(),
+                &booking.price,
+            );
+            
+            booking.amount_escrowed = booking.price;
+            booking.status = symbol_short!("confirmed");
+            BookingStorage::set(&env, booking_id, &booking);
+            
+            contract_events::emit(
+                &env,
+                Domain::Booking,
+                Action::Paid,
+                (
+                    booking.passenger.clone(),
+                    env.ledger().timestamp(),
+                    booking_id,
+                    booking.price,
+                ),
+            );
+        } else {
+            booking.status = symbol_short!("cancelled");
+            BookingStorage::set(&env, booking_id, &booking);
+            
+            contract_events::emit(
+                &env,
+                Domain::Booking,
+                Action::Cancelled,
+                (
+                    booking.passenger.clone(),
+                    env.ledger().timestamp(),
+                    booking_id,
+                    0i128,
+                    0i128,
+                ),
+            );
+        }
+    }
+
+    // Failure recovery: partial completion - split escrow proportionally
+    pub fn recover_partial_completion(
+        env: Env,
+        booking_id: u64,
+        completed_legs: u32,
+        total_legs: u32
+    ) {
+        assert!(completed_legs > 0 && completed_legs <= total_legs, "Invalid leg counts");
+        
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        
+        assert!(
+            booking.status == symbol_short!("confirmed"),
+            "Only confirmed bookings can handle partial completion"
+        );
+        assert!(booking.amount_escrowed > 0, "No funds in escrow");
+        
+        let token_client = token::Client::new(&env, &booking.token);
+        
+        let total_amount = booking.amount_escrowed;
+        let airline_share = (total_amount * (completed_legs as i128)) / (total_legs as i128);
+        let passenger_refund = total_amount - airline_share;
+        
+        if airline_share > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &booking.airline,
+                &airline_share,
+            );
+        }
+        
+        if passenger_refund > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &booking.passenger,
+                &passenger_refund,
+            );
+        }
+        
+        booking.amount_escrowed = 0;
+        booking.status = symbol_short!("completed");
+        BookingStorage::set(&env, booking_id, &booking);
+        
+        if airline_share > 0 {
+            contract_events::emit(
+                &env,
+                Domain::Booking,
+                Action::Released,
+                (
+                    booking.airline.clone(),
+                    env.ledger().timestamp(),
+                    booking_id,
+                    airline_share,
+                ),
+            );
+        }
+        
+        if passenger_refund > 0 {
+            contract_events::emit(
+                &env,
+                Domain::Booking,
+                Action::Refunded,
+                (
+                    booking.passenger.clone(),
+                    env.ledger().timestamp(),
+                    booking_id,
+                    passenger_refund,
+                ),
+            );
+        }
+    }
+
+    // Get recovery status for monitoring
+    pub fn get_recovery_status(env: Env, booking_id: u64) -> RecoveryStatus {
+        let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        let current_time = env.ledger().timestamp();
+        
+        match booking.status {
+            s if s == symbol_short!("pending") => {
+                if current_time >= booking.created_at + 86400 {
+                    RecoveryStatus::PaymentPendingTimeout
+                } else {
+                    RecoveryStatus::Normal
+                }
+            }
+            s if s == symbol_short!("confirmed") => {
+                if booking.amount_escrowed == 0 {
+                    RecoveryStatus::ContractPending
+                } else if current_time >= booking.departure_time {
+                    RecoveryStatus::SupplierTimeout
+                } else {
+                    RecoveryStatus::Normal
+                }
+            }
+            _ => RecoveryStatus::Normal,
+        }
     }
 }
