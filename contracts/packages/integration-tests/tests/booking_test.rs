@@ -87,3 +87,53 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+fn test_record_supplier_booking_reference_flow() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 50_0000000i128;
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    // Initially None
+    let booking_before = contracts.booking.get_booking(&booking_id).unwrap();
+    assert!(booking_before.supplier_booking_reference.is_none());
+
+    // Record supplier booking reference by airline
+    let sup_ref = soroban_sdk::String::from_str(&env, "PNR-XYZ-789");
+    contracts
+        .booking
+        .record_supplier_booking_reference(&booking_id, &actors.airline, &sup_ref);
+
+    let booking_after = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(
+        booking_after.supplier_booking_reference,
+        Some(sup_ref.clone())
+    );
+
+    // Passenger can also update or record supplier reference
+    let passenger_ref = soroban_sdk::String::from_str(&env, "PNR-PASSENGER-UPD");
+    contracts.booking.record_supplier_booking_reference(
+        &booking_id,
+        &actors.passenger,
+        &passenger_ref,
+    );
+
+    let booking_final = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(
+        booking_final.supplier_booking_reference,
+        Some(passenger_ref)
+    );
+}

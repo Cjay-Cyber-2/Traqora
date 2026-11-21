@@ -39,6 +39,7 @@ pub struct Booking {
     pub amount_escrowed: i128,
     pub status: Symbol, // "pending", "confirmed", "completed", "cancelled", "refunded"
     pub created_at: u64,
+    pub supplier_booking_reference: Option<String>,
 }
 
 #[contracttype]
@@ -129,6 +130,18 @@ impl BookingContract {
 
     // Initialize booking - starts in "pending" status until paid
     #[allow(clippy::too_many_arguments)]
+    pub fn validate_passenger_identity(
+        env: &Env,
+        passenger_name: &soroban_sdk::String,
+        passenger_email: &soroban_sdk::String,
+        passport_number: &soroban_sdk::String,
+    ) -> bool {
+        if passenger_name.len() == 0 || passenger_email.len() == 0 || passport_number.len() == 0 {
+            panic!("Required passenger identity fields missing");
+        }
+        true
+    }
+
     pub fn create_booking(
         env: Env,
         passenger: Address,
@@ -157,6 +170,7 @@ impl BookingContract {
             amount_escrowed: 0,
             status: symbol_short!("pending"),
             created_at: env.ledger().timestamp(),
+            supplier_booking_reference: None,
         };
 
         BookingStorage::set(&env, booking_id, &booking);
@@ -335,6 +349,37 @@ impl BookingContract {
     // Helper to get booking details
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
         BookingStorage::get(&env, booking_id)
+    }
+
+    // Record or update supplier booking reference with access controls (airline or passenger auth) and redacted operational event log
+    pub fn record_supplier_booking_reference(
+        env: Env,
+        booking_id: u64,
+        caller: Address,
+        supplier_booking_reference: String,
+    ) {
+        caller.require_auth();
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        assert!(
+            caller == booking.airline || caller == booking.passenger,
+            "Not authorized to record supplier reference"
+        );
+
+        booking.supplier_booking_reference = Some(supplier_booking_reference.clone());
+        BookingStorage::set(&env, booking_id, &booking);
+
+        // Emit redacted operational log event (avoiding sensitive raw payload exposure where necessary, recording reference hash or redacted notice indicator)
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Updated,
+            (
+                caller,
+                env.ledger().timestamp(),
+                booking_id,
+                symbol_short!("sup_ref"),
+            ),
+        );
     }
 
     // Original API wrappers for backward compatibility

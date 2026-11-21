@@ -22,6 +22,7 @@ pub struct Booking {
     pub escrowed_amount: i128,
     pub state: BookingState,
     pub created_at: u64,
+    pub supplier_booking_reference: Option<soroban_sdk::String>,
 }
 
 #[contracttype]
@@ -63,6 +64,7 @@ impl FlightBookingContract {
             escrowed_amount: amount,
             state: BookingState::Confirmed,
             created_at,
+            supplier_booking_reference: None,
         };
 
         env.storage()
@@ -94,6 +96,34 @@ impl FlightBookingContract {
         env.storage()
             .persistent()
             .get(&DataKey::Booking(booking_id))
+    }
+
+    pub fn record_supplier_booking_reference(
+        env: Env,
+        booking_id: u64,
+        caller: Address,
+        supplier_booking_reference: soroban_sdk::String,
+    ) {
+        caller.require_auth();
+        let mut booking = Self::get_booking(env.clone(), booking_id).expect("Booking not found");
+        assert!(caller == booking.passenger, "Not authorized");
+
+        booking.supplier_booking_reference = Some(supplier_booking_reference);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Booking(booking_id), &booking);
+
+        contract_events::emit(
+            &env,
+            Domain::Seat,
+            Action::Updated,
+            (
+                caller,
+                env.ledger().timestamp(),
+                booking_id,
+                symbol_short!("sup_ref"),
+            ),
+        );
     }
 
     pub fn init_upgrade_owner(env: Env, owner: Address) {

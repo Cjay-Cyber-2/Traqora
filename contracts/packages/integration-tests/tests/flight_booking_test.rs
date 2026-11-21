@@ -330,11 +330,35 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let seat = Symbol::new(&env, "15A");
     let request_ref = Symbol::new(&env, "timeout_ref_999");
 
-    let id1 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id1 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     let booking1 = client.get_booking(&id1).unwrap();
     assert_eq!(booking1.seat, seat);
 
     // Retry with same request ref after timeout should return the exact same booking id without duplicate reservation error
-    let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id2 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
+}
+
+#[test]
+fn test_flight_booking_record_supplier_reference_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FLSUP");
+    let seat = Symbol::new(&env, "20B");
+    let booking_id = client.reserve_seat(&passenger, &flight_id, &seat, &1_000);
+
+    let booking = client.get_booking(&booking_id).unwrap();
+    assert!(booking.supplier_booking_reference.is_none());
+
+    let sup_ref = soroban_sdk::String::from_str(&env, "AIRLINE-PNR-111");
+    client.record_supplier_booking_reference(&booking_id, &passenger, &sup_ref);
+
+    let updated = client.get_booking(&booking_id).unwrap();
+    assert_eq!(updated.supplier_booking_reference, Some(sup_ref));
 }

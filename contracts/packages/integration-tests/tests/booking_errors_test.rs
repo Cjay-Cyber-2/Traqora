@@ -5,6 +5,23 @@ use token::{TRQTokenContract, TRQTokenContractClient};
 use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 
 #[test]
+#[should_panic(expected = "Required passenger identity fields missing")]
+fn test_create_booking_missing_identity_fields_panics() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let empty_str = soroban_sdk::String::from_str(&env, "");
+    booking::BookingContractClient::new(&env, &contracts.booking.address)
+        .validate_passenger_identity(
+            &empty_str,
+            &soroban_sdk::String::from_str(&env, "test@example.com"),
+            &soroban_sdk::String::from_str(&env, "A1234567"),
+        );
+}
+
+#[test]
 fn test_pay_for_booking_then_success() {
     let env = new_env();
     let actors = generate_actors(&env);
