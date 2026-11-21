@@ -1,5 +1,16 @@
 import React from 'react';
 
+/**
+ * Validates passenger identity fields before creating a payable booking.
+ * Required fields: fullName, email (must contain '@'), passportNumber (min length 6).
+ */
+export const validatePassenger = (passenger: { fullName?: string; email?: string; passportNumber?: string }) => {
+  if (!passenger.fullName || passenger.fullName.trim() === '') return false;
+  if (!passenger.email || !passenger.email.includes('@')) return false;
+  if (!passenger.passportNumber || passenger.passportNumber.trim().length < 6) return false;
+  return true;
+};
+
 interface ItinerarySegment {
   flightNumber: string;
   fromAirport: string;
