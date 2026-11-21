@@ -330,11 +330,35 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let seat = Symbol::new(&env, "15A");
     let request_ref = Symbol::new(&env, "timeout_ref_999");
 
-    let id1 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id1 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     let booking1 = client.get_booking(&id1).unwrap();
     assert_eq!(booking1.seat, seat);
 
     // Retry with same request ref after timeout should return the exact same booking id without duplicate reservation error
-    let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id2 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
+}
+
+#[test]
+fn test_flight_booking_idempotent_supplier_ref_normal_and_retry_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FLIDEMO");
+    let seat = Symbol::new(&env, "20A");
+    let sup_ref = Symbol::new(&env, "ref_xyz_789");
+
+    let id_first =
+        client.reserve_seat_with_supplier_ref(&passenger, &flight_id, &seat, &2_000, sup_ref);
+    let id_retry =
+        client.reserve_seat_with_supplier_ref(&passenger, &flight_id, &seat, &2_000, sup_ref);
+
+    assert_eq!(id_first, id_retry);
+    let booking = client.get_booking(&id_first).unwrap();
+    assert_eq!(booking.escrowed_amount, 2_000);
 }

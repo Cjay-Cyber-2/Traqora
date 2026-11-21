@@ -87,3 +87,42 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+fn test_idempotent_booking_submission_and_reconciliation() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 120_0000000i128;
+    let supplier_ref = soroban_sdk::String::from_str(&env, "sup_ref_abc_123");
+
+    let booking_id_1 = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+        Some(supplier_ref.clone()),
+    );
+
+    let booking_id_2 = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+        Some(supplier_ref),
+    );
+
+    assert_eq!(booking_id_1, booking_id_2);
+    let b1 = contracts.booking.get_booking(&booking_id_1).unwrap();
+    assert_eq!(b1.price, price);
+}

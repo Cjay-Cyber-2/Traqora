@@ -139,6 +139,7 @@ impl BookingContract {
         departure_time: u64,
         price: i128,
         token: Address,
+        supplier_reference: Option<String>,
     ) -> u64 {
         passenger.require_auth();
 

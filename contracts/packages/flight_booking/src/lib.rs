@@ -36,15 +36,21 @@ pub struct FlightBookingContract;
 
 #[contractimpl]
 impl FlightBookingContract {
-    pub fn reserve_seat(
+    pub fn reserve_seat_with_supplier_ref(
         env: Env,
         passenger: Address,
         flight_id: Symbol,
         seat: Symbol,
         amount: i128,
+        supplier_ref: Symbol,
     ) -> u64 {
         passenger.require_auth();
         assert!(amount > 0, "Invalid amount");
+
+        let ref_key = (symbol_short!("sup_ref"), flight_id.clone(), supplier_ref);
+        if let Some(existing_id) = env.storage().persistent().get::<_, u64>(&ref_key) {
+            return existing_id;
+        }
 
         let seat_key = (symbol_short!("seat"), flight_id.clone(), seat.clone());
         if env.storage().persistent().has(&seat_key) {
@@ -69,6 +75,7 @@ impl FlightBookingContract {
             .persistent()
             .set(&DataKey::Booking(booking_id), &booking);
         env.storage().persistent().set(&seat_key, &booking_id);
+        env.storage().persistent().set(&ref_key, &booking_id);
         env.storage()
             .instance()
             .set(&DataKey::NextId, &(booking_id + 1));
@@ -88,6 +95,23 @@ impl FlightBookingContract {
         );
 
         booking_id
+    }
+
+    pub fn reserve_seat(
+        env: Env,
+        passenger: Address,
+        flight_id: Symbol,
+        seat: Symbol,
+        amount: i128,
+    ) -> u64 {
+        Self::reserve_seat_with_supplier_ref(
+            env,
+            passenger,
+            flight_id,
+            seat,
+            amount,
+            symbol_short!("default"),
+        )
     }
 
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
