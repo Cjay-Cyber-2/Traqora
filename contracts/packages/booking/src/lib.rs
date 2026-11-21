@@ -39,6 +39,7 @@ pub struct Booking {
     pub amount_escrowed: i128,
     pub status: Symbol, // "pending", "confirmed", "completed", "cancelled", "refunded"
     pub created_at: u64,
+    pub supplier_reference: Option<String>,
 }
 
 #[contracttype]
@@ -267,6 +268,48 @@ impl BookingContract {
                 released_amount,
             ),
         );
+    }
+
+    // Set supplier booking reference (airline only)
+    pub fn set_supplier_reference(env: Env, booking_id: u64, reference: String) {
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
+        booking.airline.require_auth();
+
+        assert!(
+            booking.status == symbol_short!("confirmed")
+                || booking.status == symbol_short!("completed"),
+            "Booking must be confirmed or completed"
+        );
+
+        booking.supplier_reference = Some(reference.clone());
+        BookingStorage::set(&env, booking_id, &booking);
+
+        // Emit event with REDACTED reference for operational logs
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Updated,
+            (
+                booking.airline.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                symbol_short!("supplier_ref_set"),
+            ),
+        );
+    }
+
+    // Get supplier reference (passenger or airline only)
+    pub fn get_supplier_reference(env: Env, booking_id: u64, caller: Address) -> Option<String> {
+        let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
+        caller.require_auth();
+        assert!(
+            caller == booking.passenger || caller == booking.airline,
+            "Not authorized to view supplier reference"
+        );
+
+        booking.supplier_reference
     }
 
     // Refund passenger for cancelled bookings
