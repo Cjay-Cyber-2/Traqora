@@ -87,3 +87,46 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+fn test_supplier_booking_reference_flow() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    // Initially supplier reference is None
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert!(booking.supplier_booking_reference.is_none());
+
+    // Airline can record supplier reference
+    let pnr = soroban_sdk::String::from_str(&env, "PNR98765");
+    contracts
+        .booking
+        .set_supplier_booking_reference(&actors.airline, &booking_id, &pnr);
+
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.supplier_booking_reference.unwrap(), pnr);
+
+    // Unauthorized user cannot record supplier reference
+    let random_user = Address::generate(&env);
+    let res = contracts.booking.try_set_supplier_booking_reference(
+        &random_user,
+        &booking_id,
+        &soroban_sdk::String::from_str(&env, "PNRUNAUTH"),
+    );
+    assert!(res.is_err());
+}
