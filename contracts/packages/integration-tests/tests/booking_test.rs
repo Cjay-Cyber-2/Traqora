@@ -20,6 +20,8 @@ fn test_payment_escrow_flow() {
         &1704067200,
         &price,
         &contracts.token.address,
+        &soroban_sdk::String::from_str(&env, "John Doe"),
+        &soroban_sdk::String::from_str(&env, "AB123456"),
     );
 
     let booking = contracts.booking.get_booking(&booking_id).unwrap();
@@ -73,6 +75,8 @@ fn test_refund_flow() {
         &departure_time,
         &price,
         &contracts.token.address,
+        &soroban_sdk::String::from_str(&env, "Jane Doe"),
+        &soroban_sdk::String::from_str(&env, "CD789012"),
     );
 
     contracts
@@ -86,4 +90,74 @@ fn test_refund_flow() {
     let booking = contracts.booking.get_booking(&booking_id).unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
+}
+
+#[test]
+fn test_validate_passenger_identity_valid_and_invalid() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    // Normal path succeeds with valid identity
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+        &soroban_sdk::String::from_str(&env, "Alice Smith"),
+        &soroban_sdk::String::from_str(&env, "AB123456"),
+    );
+    assert!(booking_id > 0);
+}
+
+#[test]
+#[should_panic]
+fn test_validate_passenger_identity_empty_name_fails() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+        &soroban_sdk::String::from_str(&env, ""),
+        &soroban_sdk::String::from_str(&env, "AB123456"),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_validate_passenger_identity_short_passport_fails() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+        &soroban_sdk::String::from_str(&env, "Bob Jones"),
+        &soroban_sdk::String::from_str(&env, "123"),
+    );
 }

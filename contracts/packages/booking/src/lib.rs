@@ -127,6 +127,12 @@ impl BookingContract {
         BookingStorage::set_receipt_contract(&env, &receipt_contract);
     }
 
+    // Validate required passenger identity fields (e.g. non-empty passenger name / identifier format)
+    pub fn validate_passenger_identity(passenger_name: &String, passport_number: &String) {
+        assert!(passenger_name.len() > 0, "Invalid passenger name");
+        assert!(passport_number.len() >= 6, "Invalid passport number format");
+    }
+
     // Initialize booking - starts in "pending" status until paid
     #[allow(clippy::too_many_arguments)]
     pub fn create_booking(
@@ -139,8 +145,12 @@ impl BookingContract {
         departure_time: u64,
         price: i128,
         token: Address,
+        passenger_name: String,
+        passport_number: String,
     ) -> u64 {
         passenger.require_auth();
+
+        Self::validate_passenger_identity(&passenger_name, &passport_number);
 
         let booking_id = BookingStorage::next_id(&env);
 
