@@ -1,0 +1,8 @@
+{
+  "event": "booking.recovery.started",
+  "timestamp": "2025-01-15T10:32:00Z",
+  "booking_id": 12345,
+  "recovery_id": "rec_abc123",
+  "type": "supplier_retry",
+  "attempt": 2
+}

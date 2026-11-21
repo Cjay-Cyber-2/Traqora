@@ -1,0 +1,10 @@
+{
+  "event": "booking.recovery.completed",
+  "timestamp": "2025-01-15T10:32:45Z",
+  "booking_id": 12345,
+  "recovery_id": "rec_abc123",
+  "type": "supplier_retry",
+  "success": true,
+  "booking_status": "confirmed",
+  "fallback_used": false
+}

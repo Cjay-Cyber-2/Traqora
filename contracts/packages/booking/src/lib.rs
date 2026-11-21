@@ -5,7 +5,7 @@
 use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, token, Address, Env,
-    String, Symbol, Vec,
+    Map, String, Symbol, Vec,
 };
 
 #[contractclient(name = "BookingReceiptClient")]
@@ -26,9 +26,20 @@ pub trait BookingReceiptInterface {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct PassengerIdentity {
+    pub full_name: String,
+    pub document_type: Symbol, // "passport", "national_id", "driver_license"
+    pub document_number: String,
+    pub date_of_birth: u64,    // Unix timestamp
+    pub nationality: Symbol,   // ISO 3166-1 alpha-3 country code
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct Booking {
     pub booking_id: u64,
     pub passenger: Address,
+    pub passenger_identity: PassengerIdentity,
     pub airline: Address,
     pub flight_number: Symbol,
     pub from_airport: Symbol,
@@ -127,7 +138,37 @@ impl BookingContract {
         BookingStorage::set_receipt_contract(&env, &receipt_contract);
     }
 
-    // Initialize booking - starts in "pending" status until paid
+    /// Initialize booking - starts in "pending" status until paid
+    ///
+    /// # Passenger Identity Validation
+    /// All passenger identity fields are required and validated:
+    /// - `passenger_full_name`: 1-100 characters
+    /// - `passenger_document_type`: Must be one of `passport`, `national_id`, `driver_license`
+    /// - `passenger_document_number`: 1-50 characters
+    /// - `passenger_date_of_birth`: Unix timestamp in the past, passenger must be at least 2 years old
+    /// - `passenger_nationality`: 3-letter uppercase ISO 3166-1 alpha-3 country code
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `passenger` - Passenger address (must authorize)
+    /// * `airline` - Airline address
+    /// * `flight_number` - Flight number symbol
+    /// * `from_airport` - Origin airport symbol
+    /// * `to_airport` - Destination airport symbol
+    /// * `departure_time` - Unix timestamp of departure
+    /// * `price` - Booking price in token units
+    /// * `token` - Token contract address
+    /// * `passenger_full_name` - Passenger's full legal name
+    /// * `passenger_document_type` - Document type: passport, national_id, or driver_license
+    /// * `passenger_document_number` - Document number
+    /// * `passenger_date_of_birth` - Date of birth as Unix timestamp
+    /// * `passenger_nationality` - ISO 3166-1 alpha-3 country code (3 uppercase letters)
+    ///
+    /// # Returns
+    /// * `u64` - The created booking ID
+    ///
+    /// # Panics
+    /// Panics if any passenger identity validation fails
     #[allow(clippy::too_many_arguments)]
     pub fn create_booking(
         env: Env,
@@ -139,14 +180,38 @@ impl BookingContract {
         departure_time: u64,
         price: i128,
         token: Address,
+        passenger_full_name: String,
+        passenger_document_type: Symbol,
+        passenger_document_number: String,
+        passenger_date_of_birth: u64,
+        passenger_nationality: Symbol,
     ) -> u64 {
         passenger.require_auth();
 
+        // Validate required passenger identity fields
+        Self::validate_passenger_identity(
+            &env,
+            &passenger_full_name,
+            &passenger_document_type,
+            &passenger_document_number,
+            passenger_date_of_birth,
+            &passenger_nationality,
+        );
+
         let booking_id = BookingStorage::next_id(&env);
+
+        let passenger_identity = PassengerIdentity {
+            full_name: passenger_full_name,
+            document_type: passenger_document_type,
+            document_number: passenger_document_number,
+            date_of_birth: passenger_date_of_birth,
+            nationality: passenger_nationality,
+        };
 
         let booking = Booking {
             booking_id,
             passenger,
+            passenger_identity,
             airline,
             flight_number,
             from_airport,
@@ -330,6 +395,59 @@ impl BookingContract {
         env.storage()
             .persistent()
             .extend_ttl(&booking_id, /* delta = */ 0);
+    }
+
+    // Validate required passenger identity fields
+    fn validate_passenger_identity(
+        env: &Env,
+        full_name: &String,
+        document_type: &Symbol,
+        document_number: &String,
+        date_of_birth: u64,
+        nationality: &Symbol,
+    ) {
+        // Full name must not be empty and must be reasonable length
+        assert!(
+            full_name.len() > 0 && full_name.len() <= 100,
+            "Invalid full name length"
+        );
+
+        // Document type must be one of the accepted types
+        let valid_doc_types = Map::new(env);
+        let valid_doc_types = valid_doc_types.set(symbol_short!("passport"), true);
+        let valid_doc_types = valid_doc_types.set(symbol_short!("national_id"), true);
+        let valid_doc_types = valid_doc_types.set(symbol_short!("driver_license"), true);
+        assert!(
+            valid_doc_types.get(document_type.clone()).unwrap_or(false),
+            "Invalid document type"
+        );
+
+        // Document number must not be empty and must be reasonable length
+        assert!(
+            document_number.len() > 0 && document_number.len() <= 50,
+            "Invalid document number length"
+        );
+
+        // Date of birth must be in the past (not future) and person must be at least 2 years old
+        let current_time = env.ledger().timestamp();
+        let min_age_seconds: u64 = 2 * 365 * 24 * 60 * 60; // 2 years in seconds
+        assert!(date_of_birth < current_time, "Date of birth cannot be in the future");
+        assert!(
+            current_time - date_of_birth >= min_age_seconds,
+            "Passenger must be at least 2 years old"
+        );
+
+        // Nationality must be a valid ISO 3166-1 alpha-3 code (3 uppercase letters)
+        let nat_str: String = nationality.to_string();
+        assert!(nat_str.len() == 3, "Nationality must be 3-letter ISO code");
+        // Basic check: all characters should be uppercase letters
+        let nat_bytes = nat_str.to_bytes();
+        let mut i = 0;
+        while i < nat_bytes.len() {
+            let b = nat_bytes.get(i).unwrap();
+            assert!(b >= 65 && b <= 90, "Nationality code must be uppercase letters");
+            i += 1;
+        }
     }
 
     // Helper to get booking details

@@ -1,0 +1,10 @@
+{
+  "event": "booking.recovery.failed",
+  "timestamp": "2025-01-15T10:35:00Z",
+  "booking_id": 12345,
+  "recovery_id": "rec_abc123",
+  "type": "supplier_retry",
+  "error": "SUPPLIER_UNAVAILABLE",
+  "retryable": true,
+  "next_retry_at": "2025-01-15T10:40:00Z"
+}
