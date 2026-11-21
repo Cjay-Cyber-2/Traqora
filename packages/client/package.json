@@ -13,7 +13,8 @@
     "test:perf": "jest tests/performance/",
     "test:e2e": "playwright test --project=e2e",
     "test:e2e:booking": "playwright test tests/e2e/booking",
-    "test:a11y": "playwright test tests/a11y"
+    "test:a11y": "playwright test tests/a11y",
+    "test:idempotency": "jest --testPathPattern=idempotency"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.4.0",

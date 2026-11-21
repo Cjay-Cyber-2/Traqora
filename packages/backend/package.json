@@ -10,6 +10,7 @@
     "test": "jest --config jest.config.cjs",
     "test:coverage": "jest --config jest.config.cjs --coverage --coverageReporters=lcov --coverageReporters=text-summary",
     "test:integration": "jest --config jest.config.cjs --runInBand",
+    "test:idempotency": "jest --config jest.config.cjs --testPathPattern=idempotency",
 
     "lint": "eslint src/**/*.ts",
     "typecheck": "rimraf dist && tsc --noEmit",

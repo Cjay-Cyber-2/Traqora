@@ -338,3 +338,208 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
 }
+
+// ─── Idempotent supplier booking tests ─────────────────────────────────────
+
+#[test]
+fn test_submit_booking_first_submission_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let supplier_id = String::from_str(&env, "supplier_001");
+    let idempotency_key = String::from_str(&env, "idem_key_001");
+    let flight_id = Symbol::new(&env, "FL100");
+    let seat = Symbol::new(&env, "12A");
+    let amount = 1_000i128;
+
+    let booking_id = client.submit_booking(
+        &supplier_id,
+        &idempotency_key,
+        &passenger,
+        &flight_id,
+        &seat,
+        &amount,
+    );
+
+    let booking = client.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.booking_id, booking_id);
+    assert_eq!(booking.flight_id, flight_id);
+    assert_eq!(booking.seat, seat);
+    assert_eq!(booking.amount, amount);
+    assert_eq!(booking.escrowed_amount, amount);
+    assert_eq!(booking.state, flight_booking::BookingState::Confirmed);
+    assert_eq!(booking.passenger, passenger);
+}
+
+#[test]
+fn test_submit_booking_duplicate_idempotency_key_returns_existing() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let supplier_id = String::from_str(&env, "supplier_001");
+    let idempotency_key = String::from_str(&env, "idem_key_002");
+    let flight_id = Symbol::new(&env, "FL200");
+    let seat = Symbol::new(&env, "12B");
+    let amount = 2_000i128;
+
+    // First submission
+    let booking_id_1 = client.submit_booking(
+        &supplier_id,
+        &idempotency_key,
+        &passenger,
+        &flight_id,
+        &seat,
+        &amount,
+    );
+
+    // Second submission with same supplier_id and idempotency_key
+    let booking_id_2 = client.submit_booking(
+        &supplier_id,
+        &idempotency_key,
+        &passenger,
+        &flight_id,
+        &seat,
+        &amount,
+    );
+
+    // Should return the same booking ID
+    assert_eq!(booking_id_1, booking_id_2);
+
+    // Only one booking should exist
+    let booking = client.get_booking(&booking_id_1).unwrap();
+    assert_eq!(booking.booking_id, booking_id_1);
+    assert_eq!(booking.flight_id, flight_id);
+}
+
+#[test]
+fn test_submit_booking_different_idempotency_key_creates_new_booking() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let supplier_id = String::from_str(&env, "supplier_001");
+    let flight_id = Symbol::new(&env, "FL300");
+    let amount = 1_500i128;
+
+    // First booking with first idempotency key
+    let idempotency_key_1 = String::from_str(&env, "idem_key_003");
+    let seat_1 = Symbol::new(&env, "12C");
+    let booking_id_1 = client.submit_booking(
+        &supplier_id,
+        &idempotency_key_1,
+        &passenger,
+        &flight_id,
+        &seat_1,
+        &amount,
+    );
+
+    // Second booking with different idempotency key and different seat
+    let idempotency_key_2 = String::from_str(&env, "idem_key_004");
+    let seat_2 = Symbol::new(&env, "12D");
+    let booking_id_2 = client.submit_booking(
+        &supplier_id,
+        &idempotency_key_2,
+        &passenger,
+        &flight_id,
+        &seat_2,
+        &amount,
+    );
+
+    // Should create different booking IDs
+    assert_ne!(booking_id_1, booking_id_2);
+
+    // Both bookings should exist
+    let booking_1 = client.get_booking(&booking_id_1).unwrap();
+    let booking_2 = client.get_booking(&booking_id_2).unwrap();
+    assert_eq!(booking_1.seat, seat_1);
+    assert_eq!(booking_2.seat, seat_2);
+}
+
+#[test]
+fn test_reconcile_supplier_booking_known_key_returns_booking_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let supplier_id = String::from_str(&env, "supplier_002");
+    let idempotency_key = String::from_str(&env, "recon_key_001");
+    let flight_id = Symbol::new(&env, "FL400");
+    let seat = Symbol::new(&env, "14A");
+    let amount = 3_000i128;
+
+    // Submit a booking first
+    let booking_id = client.submit_booking(
+        &supplier_id,
+        &idempotency_key,
+        &passenger,
+        &flight_id,
+        &seat,
+        &amount,
+    );
+
+    // Reconcile with the same key
+    let reconciled_id = client.reconcile_supplier_booking(&supplier_id, &idempotency_key);
+
+    assert_eq!(reconciled_id, Some(booking_id));
+}
+
+#[test]
+fn test_reconcile_supplier_booking_unknown_key_returns_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let supplier_id = String::from_str(&env, "supplier_002");
+    let idempotency_key = String::from_str(&env, "recon_key_002");
+
+    // Reconcile with a key that was never used
+    let reconciled_id = client.reconcile_supplier_booking(&supplier_id, &idempotency_key);
+
+    assert_eq!(reconciled_id, None);
+}
+
+#[test]
+fn test_reconcile_supplier_booking_different_supplier_returns_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let supplier_id_1 = String::from_str(&env, "supplier_A");
+    let supplier_id_2 = String::from_str(&env, "supplier_B");
+    let idempotency_key = String::from_str(&env, "shared_key");
+    let flight_id = Symbol::new(&env, "FL500");
+    let seat = Symbol::new(&env, "15B");
+    let amount = 2_500i128;
+
+    // Submit with supplier_A
+    let booking_id = client.submit_booking(
+        &supplier_id_1,
+        &idempotency_key,
+        &passenger,
+        &flight_id,
+        &seat,
+        &amount,
+    );
+
+    // Reconcile with supplier_B using same idempotency key
+    let reconciled_id = client.reconcile_supplier_booking(&supplier_id_2, &idempotency_key);
+
+    assert_eq!(reconciled_id, None);
+
+    // But original supplier should still work
+    let reconciled_id_original = client.reconcile_supplier_booking(&supplier_id_1, &idempotency_key);
+    assert_eq!(reconciled_id_original, Some(booking_id));
+}
