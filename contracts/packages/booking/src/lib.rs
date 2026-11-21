@@ -8,6 +8,157 @@ use soroban_sdk::{
     String, Symbol, Vec,
 };
 
+/// Validation errors for passenger identity fields
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum ValidationError {
+    MissingField = 1,
+    InvalidEmail = 2,
+    InvalidPhone = 3,
+    InvalidDateOfBirth = 4,
+    UnderAge = 5,
+    InvalidDocumentNumber = 6,
+    InvalidDocumentType = 7,
+}
+
+/// Passenger identity information required for booking
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PassengerIdentity {
+    pub full_name: String,
+    pub date_of_birth: u64, // Unix timestamp
+    pub nationality: String,
+    pub document_type: String, // "passport" or "national_id"
+    pub document_number: String,
+    pub email: String,
+    pub phone: String, // E.164 format
+}
+
+impl PassengerIdentity {
+    /// Validate all passenger identity fields
+    /// Returns Ok(()) if valid, or a ValidationError variant if invalid
+    pub fn validate(&self, env: &Env) -> Result<(), ValidationError> {
+        // Check all fields are present and non-empty
+        if self.full_name.len() == 0 {
+            return Err(ValidationError::MissingField);
+        }
+        if self.nationality.len() == 0 {
+            return Err(ValidationError::MissingField);
+        }
+        if self.document_type.len() == 0 {
+            return Err(ValidationError::MissingField);
+        }
+        if self.document_number.len() == 0 {
+            return Err(ValidationError::MissingField);
+        }
+        if self.email.len() == 0 {
+            return Err(ValidationError::MissingField);
+        }
+        if self.phone.len() == 0 {
+            return Err(ValidationError::MissingField);
+        }
+
+        // Validate email format (basic RFC 5322 compliant check)
+        if !is_valid_email(&self.email) {
+            return Err(ValidationError::InvalidEmail);
+        }
+
+        // Validate phone format (E.164: + followed by 1-15 digits)
+        if !is_valid_phone_e164(&self.phone) {
+            return Err(ValidationError::InvalidPhone);
+        }
+
+        // Validate date of birth is in the past and age >= 2
+        let current_time = env.ledger().timestamp();
+        if self.date_of_birth >= current_time {
+            return Err(ValidationError::InvalidDateOfBirth);
+        }
+        let age_seconds = current_time - self.date_of_birth;
+        let two_years_seconds = 2 * 365 * 24 * 60 * 60; // Approximately 2 years
+        if age_seconds < two_years_seconds {
+            return Err(ValidationError::UnderAge);
+        }
+
+        // Validate document number based on document type
+        if !is_valid_document_number(&self.document_type, &self.document_number) {
+            return Err(ValidationError::InvalidDocumentNumber);
+        }
+
+        Ok(())
+    }
+}
+
+/// Validate email format using a basic regex-like check
+fn is_valid_email(email: &String) -> bool {
+    let email_str = email.to_string();
+    // Must contain exactly one @ and at least one . after @
+    let at_count = email_str.matches('@').count();
+    if at_count != 1 {
+        return false;
+    }
+    let parts: Vec<&str> = email_str.split('@').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let local = parts[0];
+    let domain = parts[1];
+    if local.is_empty() || domain.is_empty() {
+        return false;
+    }
+    if !domain.contains('.') {
+        return false;
+    }
+    // Domain must have at least one character before and after the last dot
+    let last_dot = domain.rfind('.');
+    if let Some(idx) = last_dot {
+        if idx == 0 || idx == domain.len() - 1 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Validate phone number is in E.164 format (+ followed by 1-15 digits)
+fn is_valid_phone_e164(phone: &String) -> bool {
+    let phone_str = phone.to_string();
+    if phone_str.is_empty() {
+        return false;
+    }
+    if !phone_str.starts_with('+') {
+        return false;
+    }
+    let digits = &phone_str[1..];
+    if digits.len() < 1 || digits.len() > 15 {
+        return false;
+    }
+    digits.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Validate document number based on document type
+fn is_valid_document_number(doc_type: &String, doc_number: &String) -> bool {
+    let doc_type_str = doc_type.to_string().to_lowercase();
+    let doc_number_str = doc_number.to_string();
+
+    match doc_type_str.as_str() {
+        "passport" => {
+            // Passport: 6-9 alphanumeric characters
+            if doc_number_str.len() < 6 || doc_number_str.len() > 9 {
+                return false;
+            }
+            doc_number_str.chars().all(|c| c.is_ascii_alphanumeric())
+        }
+        "national_id" => {
+            // National ID: 8-12 digits (varies by country, but reasonable range)
+            if doc_number_str.len() < 8 || doc_number_str.len() > 12 {
+                return false;
+            }
+            doc_number_str.chars().all(|c| c.is_ascii_digit())
+        }
+        _ => false, // Invalid document type
+    }
+}
+
 #[contractclient(name = "BookingReceiptClient")]
 #[allow(clippy::too_many_arguments)]
 pub trait BookingReceiptInterface {
@@ -177,6 +328,62 @@ impl BookingContract {
         );
 
         booking_id
+    }
+
+    // Initialize booking with passenger identity validation - starts in "pending" status until paid
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_booking_with_identity(
+        env: Env,
+        passenger: Address,
+        airline: Address,
+        flight_number: Symbol,
+        from_airport: Symbol,
+        to_airport: Symbol,
+        departure_time: u64,
+        price: i128,
+        token: Address,
+        passenger_identity: PassengerIdentity,
+    ) -> Result<u64, ValidationError> {
+        passenger.require_auth();
+
+        // Validate passenger identity before creating the payable booking
+        passenger_identity.validate(&env)?;
+
+        let booking_id = BookingStorage::next_id(&env);
+
+        let booking = Booking {
+            booking_id,
+            passenger,
+            airline,
+            flight_number,
+            from_airport,
+            to_airport,
+            departure_time,
+            price,
+            token,
+            amount_escrowed: 0,
+            status: symbol_short!("pending"),
+            created_at: env.ledger().timestamp(),
+        };
+
+        BookingStorage::set(&env, booking_id, &booking);
+
+        // Canonical schema: (actor, timestamp, primary_id, ...payload)
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Created,
+            (
+                booking.passenger.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                booking.airline.clone(),
+                booking.flight_number.clone(),
+                booking.price,
+            ),
+        );
+
+        Ok(booking_id)
     }
 
     // Accept payment for the booking and hold in escrow
