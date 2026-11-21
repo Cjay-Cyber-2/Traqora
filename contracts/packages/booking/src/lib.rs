@@ -139,10 +139,18 @@ impl BookingContract {
         departure_time: u64,
         price: i128,
         token: Address,
+        supplier_ref: Symbol,
     ) -> u64 {
         passenger.require_auth();
 
+        let ref_key = (symbol_short!("sup_ref"), airline.clone(), supplier_ref);
+        assert!(
+            env.storage().persistent().get::<_, u64>(&ref_key).is_none(),
+            "Duplicate supplier booking"
+        );
+
         let booking_id = BookingStorage::next_id(&env);
+        env.storage().persistent().set(&ref_key, &booking_id);
 
         let booking = Booking {
             booking_id,
